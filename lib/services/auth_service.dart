@@ -45,12 +45,14 @@ class AuthService {
       return;
     }
 
-    await TdService.instance.start();
+    // IMPORTANT: subscribe before starting the client. TDLib pushes the
+    // first updateAuthorizationState as soon as the client exists — if we
+    // start the client first, that very first (and most important) update
+    // can be dispatched to the broadcast stream before anyone is listening
+    // and gets silently dropped, leaving the UI stuck on the loading spinner
+    // forever. Subscribing first closes that race.
     _sub ??= TdService.instance.updates.listen(_onUpdate);
-
-    // Kick the state machine — TDLib will reply with an
-    // updateAuthorizationState event once it's ready to talk.
-    TdService.instance.sendNoWait({'@type': 'getAuthorizationState'});
+    await TdService.instance.start();
   }
 
   Future<void> _onUpdate(Map<String, dynamic> update) async {
