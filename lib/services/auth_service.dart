@@ -29,6 +29,7 @@ class AuthService {
 
   String? _lastError;
   String? get lastError => _lastError;
+  AuthStatus? _retryTarget;
 
   StreamSubscription? _sub;
 
@@ -123,6 +124,7 @@ class AuthService {
       });
     } catch (e) {
       _lastError = e.toString();
+      _retryTarget = AuthStatus.waitPhoneNumber;
       _emit(AuthStatus.error);
     }
   }
@@ -135,6 +137,7 @@ class AuthService {
       });
     } catch (e) {
       _lastError = e.toString();
+      _retryTarget = AuthStatus.waitCode;
       _emit(AuthStatus.error);
     }
   }
@@ -147,8 +150,15 @@ class AuthService {
       });
     } catch (e) {
       _lastError = e.toString();
+      _retryTarget = AuthStatus.waitPassword;
       _emit(AuthStatus.error);
     }
+  }
+
+  /// Lets the UI recover from an error state (e.g. a timed-out request)
+  /// without restarting the whole app — goes back to whichever step failed.
+  void retry() {
+    _emit(_retryTarget ?? AuthStatus.waitPhoneNumber);
   }
 
   Future<void> logOut() async {

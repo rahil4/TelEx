@@ -73,7 +73,7 @@ class TdService {
     _pending[extra] = completer;
     _client!.send(withExtra);
     return completer.future.timeout(
-      const Duration(seconds: 30),
+      const Duration(seconds: 60),
       onTimeout: () {
         _pending.remove(extra);
         throw TimeoutException('پاسخی از تلگرام دریافت نشد: ${request['@type']}');

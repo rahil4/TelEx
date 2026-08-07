@@ -23,12 +23,56 @@ jobs:
           distribution: temurin
           java-version: '17'
 
+      # flutter build apk signs with the debug keystore when no release
+      # signing config is set up. That keystore is normally generated fresh
+      # on first use — since every Actions run is a brand-new machine, every
+      # build would otherwise get signed with a DIFFERENT key, and Android
+      # refuses to install an update signed with a different key than the
+      # one already on the device ("App not installed"). Caching the
+      # keystore file under a fixed key keeps the signature stable across
+      # runs: the first run generates and saves it, every run after restores
+      # the same file.
+      - name: Cache debug keystore
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/debug.keystore
+          key: debug-keystore-v1
+
       # The repo only carries lib/ and pubspec.yaml — the native android/
       # project (Gradle files, AndroidManifest.xml, etc.) is generated
       # here by the real Flutter tool on every run, which is far less
       # fragile than committing hand-written Gradle files.
       - name: Generate Android platform folder
         run: flutter create --platforms=android --org com.parshan .
+
+      # Flutter's template only adds INTERNET permission to the DEBUG
+      # variant's manifest (android/app/src/debug/AndroidManifest.xml) —
+      # the main manifest used by release builds may not have it, which
+      # would silently block all network access (including TDLib's) in
+      # the release APK we ship. Make sure it's there explicitly.
+      - name: Ensure INTERNET permission in release manifest
+        run: |
+          MANIFEST=android/app/src/main/AndroidManifest.xml
+          if ! grep -q 'android.permission.INTERNET' "$MANIFEST"; then
+            python3 - "$MANIFEST" <<'PY'
+import sys, re
+path = sys.argv[1]
+with open(path) as f:
+    content = f.read()
+if 'android.permission.INTERNET' not in content:
+    content = re.sub(
+        r'(<manifest[^>]*>)',
+        r'\1\n    <uses-permission android:name="android.permission.INTERNET"/>',
+        content, count=1,
+    )
+    with open(path, 'w') as f:
+        f.write(content)
+    print('INTERNET permission added')
+else:
+    print('INTERNET permission already present')
+PY
+          fi
+          cat "$MANIFEST"
 
       - name: Get dependencies
         run: flutter pub get

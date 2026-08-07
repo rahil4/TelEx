@@ -73,12 +73,17 @@ class _LoginScreenState extends State<LoginScreen> {
             children: [
               Text(_title, style: FluentTheme.of(context).typography.subtitle),
               const SizedBox(height: 20),
-              if (widget.status == AuthStatus.error)
+              if (widget.status == AuthStatus.error) ...[
                 InfoBar(
                   title: Text(AuthService.instance.lastError ?? 'خطایی رخ داد'),
                   severity: InfoBarSeverity.error,
-                )
-              else ...[
+                ),
+                const SizedBox(height: 16),
+                FilledButton(
+                  onPressed: AuthService.instance.retry,
+                  child: const Text('تلاش دوباره'),
+                ),
+              ] else ...[
                 if (isPassword)
                   PasswordBox(
                     controller: _controller,
