@@ -8,7 +8,7 @@ library;
 
 class ManifestFolder {
   final String id;
-  final String? parentId;
+  String? parentId;
   String name;
   String? color;
   int sortOrder;

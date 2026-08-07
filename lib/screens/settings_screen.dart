@@ -91,7 +91,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
               FilledButton(
                 onPressed: _saving ? null : _save,
                 child: _saving
-                    ? const SizedBox(
+                    ? SizedBox(
                         width: 16, height: 16, child: ProgressRing(strokeWidth: 2))
                     : const Text('ذخیره و ادامه'),
               ),

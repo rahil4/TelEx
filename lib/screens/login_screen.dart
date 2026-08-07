@@ -98,7 +98,7 @@ class _LoginScreenState extends State<LoginScreen> {
                 FilledButton(
                   onPressed: _busy ? null : _submit,
                   child: _busy
-                      ? const SizedBox(width: 16, height: 16, child: ProgressRing(strokeWidth: 2))
+                      ? SizedBox(width: 16, height: 16, child: ProgressRing(strokeWidth: 2))
                       : const Text('ادامه'),
                 ),
               ],

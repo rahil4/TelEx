@@ -248,7 +248,7 @@ class ManifestService {
   // Telegram sync
   // ---------------------------------------------------------------------
 
-  Future<int> _savedMessagesChatId() async {
+  Future<int> _resolveSavedMessagesChatId() async {
     if (_savedMessagesChatId != null) return _savedMessagesChatId!;
     final me = await TdService.instance.send({'@type': 'getMe'});
     final id = (me['id'] as num).toInt();
@@ -261,7 +261,7 @@ class ManifestService {
   /// Full sync: discovers (or creates) the pinned manifest document, then
   /// walks Saved Messages history to refresh the "uncategorized" set.
   Future<void> sync() async {
-    final chatId = await _savedMessagesChatId();
+    final chatId = await _resolveSavedMessagesChatId();
     await _discoverOrCreateManifest(chatId);
     await _scanMedia(chatId);
     await _persistLocalCache();
@@ -324,7 +324,7 @@ class ManifestService {
   /// Serializes [manifest] to a temp file and uploads/pins/edits it in
   /// Saved Messages. Call after any local edit (new folder, move file, ...).
   Future<void> pushManifest() async {
-    final chatId = await _savedMessagesChatId();
+    final chatId = await _resolveSavedMessagesChatId();
     await _pushManifest(chatId, create: _manifestMessageId == null);
     await _persistLocalCache();
   }

@@ -111,9 +111,9 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 SizedBox(width: 300, child: _buildDetailsPane()),
-                const VerticalDivider(size: 1),
+                VerticalDivider(size: 1),
                 Expanded(child: _buildContent()),
-                const VerticalDivider(size: 1),
+                VerticalDivider(size: 1),
                 SizedBox(width: 260, child: _buildNavPane()),
               ],
             ),
@@ -146,7 +146,7 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
           const SizedBox(width: 8),
           IconButton(
             icon: _syncing
-                ? const SizedBox(width: 14, height: 14, child: ProgressRing(strokeWidth: 2))
+                ? SizedBox(width: 14, height: 14, child: ProgressRing(strokeWidth: 2))
                 : const Icon(FluentIcons.refresh),
             onPressed: _syncing ? null : _refresh,
           ),
@@ -408,9 +408,9 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
     if (!isFolder) {
       content = Draggable<Object>(
         data: entry,
-        feedback: Material(
-          color: Colors.transparent,
-          child: Opacity(opacity: 0.8, child: SizedBox(width: 90, child: content)),
+        feedback: Opacity(
+          opacity: 0.8,
+          child: SizedBox(width: 90, child: content),
         ),
         childWhenDragging: Opacity(opacity: 0.4, child: content),
         child: content,
