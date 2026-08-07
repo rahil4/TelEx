@@ -111,9 +111,9 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 SizedBox(width: 300, child: _buildDetailsPane()),
-                VerticalDivider(size: 1),
+                _vDivider(),
                 Expanded(child: _buildContent()),
-                VerticalDivider(size: 1),
+                _vDivider(),
                 SizedBox(width: 260, child: _buildNavPane()),
               ],
             ),
@@ -123,6 +123,11 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
       ),
     );
   }
+
+  Widget _vDivider() => Container(
+        width: 1,
+        color: FluentTheme.of(context).resources.dividerStrokeColorDefault,
+      );
 
   // --- command bar -------------------------------------------------
 
