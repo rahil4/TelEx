@@ -1,0 +1,41 @@
+name: telegram_explorer
+description: "کاوشگر تلگرام — مدیریت و دسته‌بندی فایل‌های Saved Messages (پرشان)"
+publish_to: "none"
+version: 0.1.0+1
+
+environment:
+  sdk: ">=3.3.0 <4.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # UI — Fluent (Windows 11) design language, used on both Windows and Android
+  fluent_ui: ^4.9.0
+
+  # Telegram — MTProto access via TDLib's JSON interface (ffi binding).
+  # Android build needs a prebuilt libtdjson.so, fetched automatically from
+  # GitHub Packages during `flutter build apk` — see .github/workflows/build-apk.yml
+  libtdjson: ^0.3.0
+
+  # local cache of the manifest (folders / tags / items) mirrored from Saved Messages
+  sqflite: ^2.3.0
+  path_provider: ^2.1.0
+  path: ^1.9.0
+
+  # secure storage for api_id / api_hash / session-related values entered in Settings
+  flutter_secure_storage: ^9.0.0
+
+  # Jalali (شمسی) calendar support
+  shamsi_date: ^1.1.0
+
+  intl: ^0.19.0
+  uuid: ^4.4.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true

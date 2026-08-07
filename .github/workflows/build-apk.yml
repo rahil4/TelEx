@@ -1,0 +1,52 @@
+name: Build APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Set up Java (needed by the Android Gradle build)
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # The repo only carries lib/ and pubspec.yaml — the native android/
+      # project (Gradle files, AndroidManifest.xml, etc.) is generated
+      # here by the real Flutter tool on every run, which is far less
+      # fragile than committing hand-written Gradle files.
+      - name: Generate Android platform folder
+        run: flutter create --platforms=android --org com.parshan .
+
+      - name: Get dependencies
+        run: flutter pub get
+
+      # libtdjson's Android build pulls a prebuilt libtdjson.so from GitHub
+      # Packages (https://github.com/up9cloud/android-libtdjson). Reading a
+      # PUBLIC package there works with the default GITHUB_TOKEN; if this
+      # step fails with 401/403, create a personal access token with the
+      # `read:packages` scope, add it as a repository secret (e.g.
+      # TD_READ_TOKEN), and use that instead of secrets.GITHUB_TOKEN below.
+      - name: Build APK
+        env:
+          GITHUB_ACTOR: ${{ github.actor }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: flutter build apk --release
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: telegram-explorer-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
