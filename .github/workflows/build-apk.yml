@@ -54,23 +54,7 @@ jobs:
         run: |
           MANIFEST=android/app/src/main/AndroidManifest.xml
           if ! grep -q 'android.permission.INTERNET' "$MANIFEST"; then
-            python3 - "$MANIFEST" <<'PY'
-import sys, re
-path = sys.argv[1]
-with open(path) as f:
-    content = f.read()
-if 'android.permission.INTERNET' not in content:
-    content = re.sub(
-        r'(<manifest[^>]*>)',
-        r'\1\n    <uses-permission android:name="android.permission.INTERNET"/>',
-        content, count=1,
-    )
-    with open(path, 'w') as f:
-        f.write(content)
-    print('INTERNET permission added')
-else:
-    print('INTERNET permission already present')
-PY
+            sed -i '/<manifest /a\    <uses-permission android:name="android.permission.INTERNET"/>' "$MANIFEST"
           fi
           cat "$MANIFEST"
 
