@@ -20,6 +20,7 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
   ViewMode _viewMode = ViewMode.icons;
   Object? _selected; // ManifestFolder | ManifestItem | CachedMessage
   bool _syncing = false;
+  String? _syncError;
   final Set<String> _expandedFolders = {};
 
   @override
@@ -32,12 +33,15 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
   }
 
   Future<void> _refresh() async {
-    setState(() => _syncing = true);
+    setState(() {
+      _syncing = true;
+      _syncError = null;
+    });
     await ManifestService.instance.loadFromLocalCache();
     try {
       await ManifestService.instance.sync();
-    } catch (_) {
-      // offline or transient error — local cache still shown
+    } catch (e) {
+      _syncError = e.toString();
     }
     if (mounted) setState(() => _syncing = false);
   }
@@ -104,6 +108,17 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
         children: [
           _buildCommandBar(),
           _buildAddressBar(),
+          if (_syncError != null)
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+              child: InfoBar(
+                title: const Text('همگام‌سازی با تلگرام ناموفق بود'),
+                content: Text(_syncError!),
+                severity: InfoBarSeverity.warning,
+                onClose: () => setState(() => _syncError = null),
+              ),
+            ),
           Expanded(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.stretch,

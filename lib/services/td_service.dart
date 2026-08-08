@@ -1,6 +1,19 @@
 import 'dart:async';
 import 'package:libtdjson/client.dart';
 
+/// TDLib's own error shape, surfaced as a proper Dart exception instead of
+/// being mistaken for a normal (if empty-looking) response.
+class TdError implements Exception {
+  final int code;
+  final String message;
+  final String? requestType;
+  TdError({required this.code, required this.message, this.requestType});
+
+  @override
+  String toString() =>
+      'TdError($code${requestType != null ? ' از $requestType' : ''}): $message';
+}
+
 /// Thin, general-purpose wrapper around TDLib's JSON interface.
 ///
 /// TDLib's JSON API is a single request/response channel: you `send()` a
@@ -65,7 +78,11 @@ class TdService {
     _updatesController.add(result);
   }
 
-  /// Sends a request and resolves with the matching reply.
+  /// Sends a request and resolves with the matching reply. Throws a
+  /// [TdError] if TDLib replies with an `{"@type":"error", ...}` object —
+  /// without this check, callers that only look for a specific expected
+  /// field (like `messages`) would silently treat an error response as
+  /// "empty result" instead of surfacing what actually went wrong.
   Future<Map<String, dynamic>> send(Map<String, dynamic> request) {
     if (_client == null) {
       throw StateError('TdService.start() must be called first');
@@ -81,7 +98,16 @@ class TdService {
         _pending.remove(extra);
         throw TimeoutException('پاسخی از تلگرام دریافت نشد: ${request['@type']}');
       },
-    );
+    ).then((result) {
+      if (result['@type'] == 'error') {
+        throw TdError(
+          code: (result['code'] as num?)?.toInt() ?? 0,
+          message: result['message'] as String? ?? 'خطای نامشخص از تلگرام',
+          requestType: request['@type'] as String?,
+        );
+      }
+      return result;
+    });
   }
 
   /// Fire-and-forget variant for requests whose reply we don't care about
