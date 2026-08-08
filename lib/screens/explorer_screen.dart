@@ -2,10 +2,8 @@ import 'package:fluent_ui/fluent_ui.dart';
 import 'package:shamsi_date/shamsi_date.dart';
 import '../models/manifest.dart';
 import '../services/manifest_service.dart';
+import '../services/auth_service.dart';
 import 'widgets/file_icons.dart';
-
-/// sentinel folderId meaning "the virtual دسته‌بندی‌نشده listing"
-const _kUncategorized = '__uncategorized__';
 
 enum ViewMode { icons, list }
 
@@ -167,9 +165,31 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
             onChanged: (v) => setState(() => _viewMode = ViewMode.list),
             child: const Icon(FluentIcons.list),
           ),
+          const SizedBox(width: 8),
+          IconButton(
+            icon: const Icon(FluentIcons.sign_out),
+            onPressed: _confirmLogOut,
+          ),
         ],
       ),
     );
+  }
+
+  Future<void> _confirmLogOut() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => ContentDialog(
+        title: const Text('خروج از حساب'),
+        content: const Text('اتصال به این حساب تلگرام قطع می‌شود. مطمئنی؟'),
+        actions: [
+          Button(child: const Text('انصراف'), onPressed: () => Navigator.pop(ctx, false)),
+          FilledButton(child: const Text('خروج'), onPressed: () => Navigator.pop(ctx, true)),
+        ],
+      ),
+    );
+    if (confirmed == true) {
+      await AuthService.instance.logOut();
+    }
   }
 
   Widget _buildAddressBar() {
@@ -385,7 +405,7 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
         : entry is ManifestItem
             ? entry.displayName
             : (entry as CachedMessage).fileName;
-    final selected = identical(_selected, entry);
+    final selected = _selected == entry;
 
     Widget content = GestureDetector(
       onTap: () => setState(() => _selected = entry),
@@ -459,7 +479,7 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
             : entry is CachedMessage
                 ? entry.sizeBytes
                 : null;
-        final selected = identical(_selected, entry);
+        final selected = _selected == entry;
 
         return GestureDetector(
           onTap: () => setState(() => _selected = entry),

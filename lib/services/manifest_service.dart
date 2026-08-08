@@ -25,6 +25,13 @@ class CachedMessage {
     this.sizeBytes,
     required this.date,
   });
+
+  @override
+  bool operator ==(Object other) =>
+      other is CachedMessage && other.messageId == messageId;
+
+  @override
+  int get hashCode => messageId.hashCode;
 }
 
 const _manifestMarker = '#kavoshgar_manifest';

@@ -36,6 +36,12 @@ class ManifestFolder {
         'color': color,
         'sort_order': sortOrder,
       };
+
+  @override
+  bool operator ==(Object other) => other is ManifestFolder && other.id == id;
+
+  @override
+  int get hashCode => id.hashCode;
 }
 
 class ManifestTag {
@@ -120,6 +126,13 @@ class ManifestItem {
           'original_file_name': originalFileName,
         },
       };
+
+  @override
+  bool operator ==(Object other) =>
+      other is ManifestItem && other.telegramMessageId == telegramMessageId;
+
+  @override
+  int get hashCode => telegramMessageId.hashCode;
 }
 
 class Manifest {
@@ -175,8 +188,4 @@ class Manifest {
   List<ManifestItem> itemsInFolder(String? folderId) =>
       items.where((i) => i.folderId == folderId).toList()
         ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
-
-  /// Items that exist in Saved Messages but were never filed into a folder.
-  List<ManifestItem> get uncategorized =>
-      items.where((i) => i.folderId == null).toList();
 }

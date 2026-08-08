@@ -35,7 +35,7 @@ class _RootRouter extends StatelessWidget {
         final status = snapshot.data ?? AuthStatus.starting;
         switch (status) {
           case AuthStatus.starting:
-            return const ScaffoldPage(
+            return ScaffoldPage(
               content: Center(child: ProgressRing()),
             );
           case AuthStatus.needCredentials:

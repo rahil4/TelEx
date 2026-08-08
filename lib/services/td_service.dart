@@ -40,13 +40,16 @@ class TdService {
 
   Future<void> _receiveLoop() async {
     while (_running && _client != null) {
-      final result = _client!.receive(1.0);
+      // receive() blocks the isolate synchronously while it waits, so we
+      // keep the native timeout short (rather than the original 1s) and
+      // explicitly yield every iteration — this keeps the UI responsive
+      // between polls without needing a separate Isolate. A real Isolate
+      // split would remove the stutter entirely; noted as a follow-up.
+      final result = _client!.receive(0.1);
       if (result != null) {
         _handleIncoming(result);
-      } else {
-        // no data within timeout — yield back to the event loop briefly
-        await Future.delayed(const Duration(milliseconds: 1));
       }
+      await Future.delayed(Duration.zero);
     }
   }
 

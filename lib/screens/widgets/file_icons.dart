@@ -93,28 +93,25 @@ class FileTypeIcon extends StatelessWidget {
       width: size,
       height: size,
       child: Stack(
+        alignment: Alignment.center,
         children: [
-          Container(
-            decoration: BoxDecoration(
-              color: style.color,
-              borderRadius: BorderRadius.circular(size * 0.12),
+          Positioned.fill(
+            child: Container(
+              decoration: BoxDecoration(
+                color: style.color,
+                borderRadius: BorderRadius.circular(size * 0.12),
+              ),
             ),
           ),
           if (isImage)
-            Positioned(
-              left: size * 0.14,
-              top: size * 0.18,
-              child: Icon(FluentIcons.picture_center, size: size * 0.32, color: Colors.white.withOpacity(0.9)),
-            )
+            Icon(FluentIcons.picture_center, size: size * 0.32, color: Colors.white.withOpacity(0.9))
           else
-            Center(
-              child: Text(
-                style.label,
-                style: TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: size * 0.22,
-                ),
+            Text(
+              style.label,
+              style: TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: size * 0.22,
               ),
             ),
         ],
