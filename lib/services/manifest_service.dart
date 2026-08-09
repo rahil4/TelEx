@@ -424,11 +424,19 @@ class ManifestService {
     final lastSeen = lastSeenStr == null ? 0 : int.tryParse(lastSeenStr) ?? 0;
 
     int fromMessageId = 0;
+    int? lastRequestedId; // the from_message_id we last asked for
     int? newestSeenThisRun;
     bool reachedKnownHistory = false;
     final db = await _openDb();
 
-    while (!reachedKnownHistory) {
+    // Safety net: even with correct pagination logic this guarantees the
+    // sync can never hang forever — 400 pages * 50 messages covers a very
+    // large history; if somehow still not done, stop rather than spin.
+    const maxPages = 400;
+    var pageCount = 0;
+
+    while (!reachedKnownHistory && pageCount < maxPages) {
+      pageCount++;
       final page = await TdService.instance.send({
         '@type': 'getChatHistory',
         'chat_id': chatId,
@@ -437,11 +445,24 @@ class ManifestService {
         'limit': 50,
         'only_local': false,
       });
-      final messages = (page['messages'] as List?) ?? [];
+      var messages = ((page['messages'] as List?) ?? [])
+          .cast<Map<String, dynamic>>();
+
+      // With offset:0, TDLib includes the from_message_id message itself as
+      // the first result — which we already processed in the previous
+      // iteration (it was the last item of the previous page). Drop it here
+      // to avoid reprocessing it and, critically, to detect when we've hit
+      // the true start of history: if after dropping it nothing remains,
+      // there is nothing older left and we must stop.
+      if (lastRequestedId != null &&
+          messages.isNotEmpty &&
+          (messages.first['id'] as num).toInt() == lastRequestedId) {
+        messages = messages.sublist(1);
+      }
+
       if (messages.isEmpty) break;
 
-      for (final raw in messages) {
-        final m = raw as Map<String, dynamic>;
+      for (final m in messages) {
         final id = (m['id'] as num).toInt();
         newestSeenThisRun ??= id;
         if (id <= lastSeen) {
@@ -463,8 +484,15 @@ class ManifestService {
       }
 
       if (reachedKnownHistory) break;
-      final lastInPage = messages.last as Map<String, dynamic>;
-      fromMessageId = (lastInPage['id'] as num).toInt();
+      final lastInPage = messages.last;
+      final nextFrom = (lastInPage['id'] as num).toInt();
+      if (nextFrom == fromMessageId) {
+        // no progress made — defensive stop, shouldn't happen given the
+        // dedup above, but avoids any possibility of looping forever.
+        break;
+      }
+      lastRequestedId = nextFrom;
+      fromMessageId = nextFrom;
     }
 
     if (newestSeenThisRun != null) {

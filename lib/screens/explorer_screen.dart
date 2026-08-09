@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:fluent_ui/fluent_ui.dart';
 import 'package:shamsi_date/shamsi_date.dart';
 import '../models/manifest.dart';
@@ -39,7 +40,10 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
     });
     await ManifestService.instance.loadFromLocalCache();
     try {
-      await ManifestService.instance.sync();
+      await ManifestService.instance.sync().timeout(
+        const Duration(seconds: 45),
+        onTimeout: () => throw TimeoutException('همگام‌سازی بیش از حد طول کشید'),
+      );
     } catch (e) {
       _syncError = e.toString();
     }
