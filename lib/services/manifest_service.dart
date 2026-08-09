@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -318,26 +317,22 @@ class ManifestService {
       'message_id': messageId,
     });
     final content = msg['content'] as Map<String, dynamic>?;
-    final doc = content?['document'] as Map<String, dynamic>?;
-    final file = doc?['document'] as Map<String, dynamic>?;
-    final fileId = (file?['id'] as num?)?.toInt();
-    if (fileId == null) return;
-
-    final downloaded = await TdService.instance.send({
-      '@type': 'downloadFile',
-      'file_id': fileId,
-      'priority': 32,
-      'synchronous': true,
-    });
-    final localPath = (downloaded['local'] as Map<String, dynamic>?)?['path'] as String?;
-    if (localPath == null) return;
-
-    final text = await File(localPath).readAsString();
-    manifest = Manifest.fromJson(jsonDecode(text) as Map<String, dynamic>);
+    final text = (content?['text'] as Map<String, dynamic>?)?['text'] as String?;
+    if (text == null) return;
+    final jsonPart = text.startsWith(_manifestMarker)
+        ? text.substring(_manifestMarker.length).trim()
+        : text.trim();
+    if (jsonPart.isEmpty) return;
+    manifest = Manifest.fromJson(jsonDecode(jsonPart) as Map<String, dynamic>);
   }
 
-  /// Serializes [manifest] to a temp file and uploads/pins/edits it in
-  /// Saved Messages. Call after any local edit (new folder, move file, ...).
+  /// Serializes [manifest] to a plain-text message and sends/pins/edits it
+  /// in Saved Messages. Call after any local edit (new folder, move file,
+  /// ...). Stored as text rather than an attached file: it's simpler,
+  /// avoids a local-file-upload step entirely, and a compact JSON manifest
+  /// comfortably fits inside Telegram's ~4096 character message limit for
+  /// a personal folder structure. If this ever becomes a real constraint
+  /// (very large folder trees), this is the place to switch to a file.
   Future<void> pushManifest() async {
     final chatId = await _resolveSavedMessagesChatId();
     await _pushManifest(chatId, create: _manifestMessageId == null);
@@ -348,57 +343,41 @@ class ManifestService {
     manifest.revision += 1;
     manifest.updatedAt = DateTime.now();
 
-    final dir = await getTemporaryDirectory();
-    final file = File(p.join(dir.path, 'kavoshgar_manifest.json'));
-    await file.writeAsString(jsonEncode(manifest.toJson()), flush: true);
-
-    // Defensive check: if this ever fails, the error will clearly say so
-    // instead of surfacing as a confusing "InputFile is not specified"
-    // from TDLib further down.
-    if (!await file.exists()) {
-      throw StateError('فایل موقت منیفست ساخته نشد: ${file.path}');
-    }
-    final fileSize = await file.length();
-    if (fileSize == 0) {
-      throw StateError('فایل موقت منیفست خالی است: ${file.path}');
+    final body = '$_manifestMarker\n${jsonEncode(manifest.toJson())}';
+    if (body.length > 4000) {
+      throw StateError(
+        'منیفست به ${body.length} کاراکتر رسیده و به محدودیت پیام تلگرام نزدیک است. '
+        'این نسخه هنوز از ذخیرهٔ فایلی پشتیبانی نمی‌کند — لازم است تعداد فولدر/فایل کم شود.',
+      );
     }
 
-    final Map<String, dynamic> content = <String, dynamic>{
-      '@type': 'inputMessageDocument',
-      'document': <String, dynamic>{'@type': 'inputFileLocal', 'path': file.path},
-      'caption': <String, dynamic>{'@type': 'formattedText', 'text': _manifestMarker},
+    final content = <String, dynamic>{
+      '@type': 'inputMessageText',
+      'text': <String, dynamic>{'@type': 'formattedText', 'text': body},
     };
 
-    try {
-      if (create) {
-        final sent = await TdService.instance.send({
-          '@type': 'sendMessage',
-          'chat_id': chatId,
-          'input_message_content': content,
-        });
-        final id = (sent['id'] as num).toInt();
-        _manifestMessageId = id;
-        await _kvSet('manifest_message_id', id.toString());
-        await TdService.instance.send({
-          '@type': 'pinChatMessage',
-          'chat_id': chatId,
-          'message_id': id,
-          'disable_notification': true,
-        });
-      } else {
-        await TdService.instance.send({
-          '@type': 'editMessageMedia',
-          'chat_id': chatId,
-          'message_id': _manifestMessageId,
-          'input_message_content': content,
-        });
-      }
-    } on TdError catch (e) {
-      throw TdError(
-        code: e.code,
-        message: '${e.message} (مسیر فایل: ${file.path}, حجم: $fileSize بایت)',
-        requestType: e.requestType,
-      );
+    if (create) {
+      final sent = await TdService.instance.send({
+        '@type': 'sendMessage',
+        'chat_id': chatId,
+        'input_message_content': content,
+      });
+      final id = (sent['id'] as num).toInt();
+      _manifestMessageId = id;
+      await _kvSet('manifest_message_id', id.toString());
+      await TdService.instance.send({
+        '@type': 'pinChatMessage',
+        'chat_id': chatId,
+        'message_id': id,
+        'disable_notification': true,
+      });
+    } else {
+      await TdService.instance.send({
+        '@type': 'editMessageText',
+        'chat_id': chatId,
+        'message_id': _manifestMessageId,
+        'input_message_content': content,
+      });
     }
   }
 
