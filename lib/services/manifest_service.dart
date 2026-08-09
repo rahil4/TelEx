@@ -350,36 +350,55 @@ class ManifestService {
 
     final dir = await getTemporaryDirectory();
     final file = File(p.join(dir.path, 'kavoshgar_manifest.json'));
-    await file.writeAsString(jsonEncode(manifest.toJson()));
+    await file.writeAsString(jsonEncode(manifest.toJson()), flush: true);
 
-    final content = {
+    // Defensive check: if this ever fails, the error will clearly say so
+    // instead of surfacing as a confusing "InputFile is not specified"
+    // from TDLib further down.
+    if (!await file.exists()) {
+      throw StateError('فایل موقت منیفست ساخته نشد: ${file.path}');
+    }
+    final fileSize = await file.length();
+    if (fileSize == 0) {
+      throw StateError('فایل موقت منیفست خالی است: ${file.path}');
+    }
+
+    final Map<String, dynamic> content = <String, dynamic>{
       '@type': 'inputMessageDocument',
-      'document': {'@type': 'inputFileLocal', 'path': file.path},
-      'caption': {'@type': 'formattedText', 'text': _manifestMarker},
+      'document': <String, dynamic>{'@type': 'inputFileLocal', 'path': file.path},
+      'caption': <String, dynamic>{'@type': 'formattedText', 'text': _manifestMarker},
     };
 
-    if (create) {
-      final sent = await TdService.instance.send({
-        '@type': 'sendMessage',
-        'chat_id': chatId,
-        'input_message_content': content,
-      });
-      final id = (sent['id'] as num).toInt();
-      _manifestMessageId = id;
-      await _kvSet('manifest_message_id', id.toString());
-      await TdService.instance.send({
-        '@type': 'pinChatMessage',
-        'chat_id': chatId,
-        'message_id': id,
-        'disable_notification': true,
-      });
-    } else {
-      await TdService.instance.send({
-        '@type': 'editMessageMedia',
-        'chat_id': chatId,
-        'message_id': _manifestMessageId,
-        'input_message_content': content,
-      });
+    try {
+      if (create) {
+        final sent = await TdService.instance.send({
+          '@type': 'sendMessage',
+          'chat_id': chatId,
+          'input_message_content': content,
+        });
+        final id = (sent['id'] as num).toInt();
+        _manifestMessageId = id;
+        await _kvSet('manifest_message_id', id.toString());
+        await TdService.instance.send({
+          '@type': 'pinChatMessage',
+          'chat_id': chatId,
+          'message_id': id,
+          'disable_notification': true,
+        });
+      } else {
+        await TdService.instance.send({
+          '@type': 'editMessageMedia',
+          'chat_id': chatId,
+          'message_id': _manifestMessageId,
+          'input_message_content': content,
+        });
+      }
+    } on TdError catch (e) {
+      throw TdError(
+        code: e.code,
+        message: '${e.message} (مسیر فایل: ${file.path}, حجم: $fileSize بایت)',
+        requestType: e.requestType,
+      );
     }
   }
 
