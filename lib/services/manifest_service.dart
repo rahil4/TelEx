@@ -258,11 +258,19 @@ class ManifestService {
   Future<int> _resolveSavedMessagesChatId() async {
     if (_savedMessagesChatId != null) return _savedMessagesChatId!;
     final me = await TdService.instance.send({'@type': 'getMe'});
-    final id = (me['id'] as num).toInt();
-    // ensure the chat object is loaded before we touch it
-    await TdService.instance.send({'@type': 'getChat', 'chat_id': id});
-    _savedMessagesChatId = id;
-    return id;
+    final userId = (me['id'] as num).toInt();
+    // getChat alone fails with "Chat not found" until TDLib has been
+    // explicitly asked to create/load the private chat at least once.
+    // createPrivateChat does that (and returns the Chat object, including
+    // its id — used as-is rather than assumed to equal userId).
+    final chat = await TdService.instance.send({
+      '@type': 'createPrivateChat',
+      'user_id': userId,
+      'force': true,
+    });
+    final chatId = (chat['id'] as num).toInt();
+    _savedMessagesChatId = chatId;
+    return chatId;
   }
 
   /// Full sync: discovers (or creates) the pinned manifest document, then
