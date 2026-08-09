@@ -362,7 +362,8 @@ class ManifestService {
         'chat_id': chatId,
         'input_message_content': content,
       });
-      final id = (sent['id'] as num).toInt();
+      final tempId = (sent['id'] as num).toInt();
+      final id = await _awaitMessageConfirmed(tempId);
       _manifestMessageId = id;
       await _kvSet('manifest_message_id', id.toString());
       await TdService.instance.send({
@@ -379,6 +380,39 @@ class ManifestService {
         'input_message_content': content,
       });
     }
+  }
+
+  /// sendMessage() returns immediately with a message carrying a temporary,
+  /// client-local id — the server hasn't confirmed it yet, so operations
+  /// like pinChatMessage will reject that id ("Message can't be pinned").
+  /// This waits for the matching updateMessageSendSucceeded (or _Failed)
+  /// event and resolves with the real, server-confirmed message id.
+  Future<int> _awaitMessageConfirmed(int tempId) async {
+    final completer = Completer<int>();
+    late final StreamSubscription sub;
+    sub = TdService.instance.updates.listen((u) {
+      final type = u['@type'];
+      if (type == 'updateMessageSendSucceeded') {
+        final oldId = (u['old_message_id'] as num?)?.toInt();
+        if (oldId == tempId) {
+          final newMsg = u['message'] as Map<String, dynamic>;
+          completer.complete((newMsg['id'] as num).toInt());
+          sub.cancel();
+        }
+      } else if (type == 'updateMessageSendFailed') {
+        final oldId = (u['old_message_id'] as num?)?.toInt();
+        if (oldId == tempId) {
+          completer.completeError(StateError('ارسال پیام منیفست به تلگرام ناموفق بود'));
+          sub.cancel();
+        }
+      }
+    });
+    return completer.future.timeout(const Duration(seconds: 20), onTimeout: () {
+      sub.cancel();
+      // fall back to the temporary id rather than hanging forever — pin
+      // may still fail, but sync as a whole can continue.
+      return tempId;
+    });
   }
 
   /// Walks Saved Messages backwards from the newest message, stopping once
