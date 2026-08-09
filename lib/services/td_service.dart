@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:isolate';
 import 'package:libtdjson/client.dart';
 
 /// TDLib's own error shape, surfaced as a proper Dart exception instead of
@@ -16,25 +17,23 @@ class TdError implements Exception {
 
 /// Thin, general-purpose wrapper around TDLib's JSON interface.
 ///
-/// TDLib's JSON API is a single request/response channel: you `send()` a
-/// JSON object and, separately, `receive()` JSON objects back — replies to
-/// your own requests AND unsolicited "update*" events (new messages, auth
-/// state changes, etc.) come back on the same channel. We tell them apart
-/// using the `@extra` field: every request we send gets a unique `@extra`
-/// value, and if a received object carries that same value back, it's the
-/// reply to that specific call; otherwise it's an update we publish on
-/// [updates] for whoever is interested (AuthService, ManifestService, ...).
+/// TDLib's client itself runs entirely inside a background [Isolate] — the
+/// blocking, synchronous receive() call never touches the UI isolate, so
+/// the interface stays responsive no matter how busy TDLib is. Requests go
+/// out and responses/updates come back over a normal Isolate SendPort,
+/// which Dart can transfer directly (our messages are always plain
+/// String/num/bool/List/Map — no manual JSON encoding needed).
 ///
-/// NOTE: `receive()` is a blocking native call with a timeout. Polling it in
-/// a tight loop on the UI isolate (as done below, for simplicity) is fine to
-/// get the app running, but for a smooth production build this loop should
-/// move to its own Isolate. Left as a clearly-marked follow-up.
+/// Replies to our own requests and unsolicited "update*" events (new
+/// messages, auth state changes, etc.) share the same channel; we tell them
+/// apart with an `@extra` field on every request, matched against the reply.
 class TdService {
   TdService._();
   static final TdService instance = TdService._();
 
-  Client? _client;
-  bool _running = false;
+  Isolate? _isolate;
+  SendPort? _isolateSendPort;
+  Completer<void>? _ready;
   int _extraCounter = 0;
 
   final _updatesController = StreamController<Map<String, dynamic>>.broadcast();
@@ -42,28 +41,24 @@ class TdService {
 
   final Map<String, Completer<Map<String, dynamic>>> _pending = {};
 
-  bool get isStarted => _client != null;
+  bool get isStarted => _isolate != null;
 
   Future<void> start() async {
-    if (_client != null) return;
-    _client = Client()..create();
-    _running = true;
-    unawaited(_receiveLoop());
-  }
+    if (_isolate != null) return;
+    _ready = Completer<void>();
 
-  Future<void> _receiveLoop() async {
-    while (_running && _client != null) {
-      // receive() blocks the isolate synchronously while it waits, so we
-      // keep the native timeout short (rather than the original 1s) and
-      // explicitly yield every iteration — this keeps the UI responsive
-      // between polls without needing a separate Isolate. A real Isolate
-      // split would remove the stutter entirely; noted as a follow-up.
-      final result = _client!.receive(0.1);
-      if (result != null) {
-        _handleIncoming(result);
+    final mainPort = ReceivePort();
+    mainPort.listen((message) {
+      if (message is SendPort) {
+        _isolateSendPort = message;
+        if (!(_ready?.isCompleted ?? true)) _ready!.complete();
+      } else if (message is Map) {
+        _handleIncoming(Map<String, dynamic>.from(message));
       }
-      await Future.delayed(Duration.zero);
-    }
+    });
+
+    _isolate = await Isolate.spawn(_tdIsolateEntry, mainPort.sendPort);
+    await _ready!.future;
   }
 
   void _handleIncoming(Map<String, dynamic> result) {
@@ -84,14 +79,14 @@ class TdService {
   /// field (like `messages`) would silently treat an error response as
   /// "empty result" instead of surfacing what actually went wrong.
   Future<Map<String, dynamic>> send(Map<String, dynamic> request) {
-    if (_client == null) {
+    if (_isolateSendPort == null) {
       throw StateError('TdService.start() must be called first');
     }
     final extra = 'req_${_extraCounter++}_${DateTime.now().microsecondsSinceEpoch}';
     final withExtra = {...request, '@extra': extra};
     final completer = Completer<Map<String, dynamic>>();
     _pending[extra] = completer;
-    _client!.send(withExtra);
+    _isolateSendPort!.send(withExtra);
     return completer.future.timeout(
       const Duration(seconds: 60),
       onTimeout: () {
@@ -114,13 +109,45 @@ class TdService {
   /// waiting for synchronously (still resolved through the normal channel,
   /// any @extra mismatch is simply ignored).
   void sendNoWait(Map<String, dynamic> request) {
-    if (_client == null) return;
-    _client!.send(request);
+    _isolateSendPort?.send(request);
   }
 
   void dispose() {
-    _running = false;
+    _isolate?.kill(priority: Isolate.immediate);
+    _isolate = null;
+    _isolateSendPort = null;
     _updatesController.close();
     _pending.clear();
   }
+}
+
+/// Entry point run on the background isolate. Owns the TDLib [Client] for
+/// its entire lifetime — creation, the blocking receive loop, and outgoing
+/// sends all happen here, never on the UI isolate.
+void _tdIsolateEntry(SendPort mainSendPort) {
+  final commandPort = ReceivePort();
+  mainSendPort.send(commandPort.sendPort);
+
+  final client = Client()..create();
+  var running = true;
+
+  commandPort.listen((message) {
+    if (message is Map) {
+      client.send(Map<String, dynamic>.from(message));
+    } else if (message == '__stop__') {
+      running = false;
+    }
+  });
+
+  Future<void> loop() async {
+    while (running) {
+      // Blocking is fine here — this isolate has nothing else to do.
+      final result = client.receive(1.0);
+      if (result != null) {
+        mainSendPort.send(result);
+      }
+    }
+  }
+
+  loop();
 }

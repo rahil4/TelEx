@@ -1,9 +1,11 @@
+import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
 import 'package:fluent_ui/fluent_ui.dart';
 import 'theme/app_theme.dart';
 import 'services/auth_service.dart';
 import 'screens/settings_screen.dart';
 import 'screens/login_screen.dart';
 import 'screens/explorer_screen.dart';
+import 'screens/mobile/mobile_folder_page.dart';
 
 class TelegramExplorerApp extends StatelessWidget {
   const TelegramExplorerApp({super.key});
@@ -46,7 +48,11 @@ class _RootRouter extends StatelessWidget {
           case AuthStatus.error:
             return LoginScreen(status: status);
           case AuthStatus.ready:
-            return const ExplorerScreen();
+            final isMobilePlatform = defaultTargetPlatform == TargetPlatform.android ||
+                defaultTargetPlatform == TargetPlatform.iOS;
+            return isMobilePlatform
+                ? const MobileFolderPage(title: 'کاوشگر تلگرام')
+                : const ExplorerScreen();
           case AuthStatus.loggingOut:
             return const ScaffoldPage(
               content: Center(child: Text('در حال خروج…')),
