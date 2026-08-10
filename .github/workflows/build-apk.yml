@@ -61,6 +61,22 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      # file_picker's transitive dependency (flutter_plugin_android_lifecycle)
+      # requires compiling against Android API 36+. Flutter's generated
+      # build.gradle.kts defaults to whatever the installed Flutter SDK
+      # ships (often lower), so bump it explicitly rather than waiting for
+      # subosito/flutter-action's bundled default to catch up.
+      - name: Bump compileSdk to 36
+        run: |
+          GRADLE=android/app/build.gradle.kts
+          sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 36/' "$GRADLE"
+          if ! grep -q "compileSdk = 36" "$GRADLE"; then
+            echo "::error::Expected pattern not found in $GRADLE — inspect the file and update the sed pattern above."
+            cat "$GRADLE"
+            exit 1
+          fi
+          grep -n "compileSdk" "$GRADLE"
+
       # libtdjson's Android build pulls a prebuilt libtdjson.so from GitHub
       # Packages (https://github.com/up9cloud/android-libtdjson). Reading a
       # PUBLIC package there works with the default GITHUB_TOKEN; if this
