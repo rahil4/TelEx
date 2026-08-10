@@ -424,6 +424,7 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
         : entry is ManifestItem
             ? entry.displayName
             : (entry as CachedMessage).fileName;
+    final messageId = isFolder ? null : (entry is ManifestItem ? entry.telegramMessageId : (entry as CachedMessage).messageId);
     final selected = _selected == entry;
 
     Widget content = GestureDetector(
@@ -437,7 +438,13 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
         padding: const EdgeInsets.all(8),
         child: Column(
           children: [
-            isFolder ? const FolderIcon(size: 48) : FileTypeIcon(fileName: name, size: 44),
+            isFolder
+                ? const FolderIcon(size: 48)
+                : FileTypeIcon(
+                    fileName: name,
+                    size: 44,
+                    thumbnailBase64: messageId == null ? null : ManifestService.instance.thumbnailFor(messageId),
+                  ),
             const SizedBox(height: 6),
             Text(name,
                 textAlign: TextAlign.center,

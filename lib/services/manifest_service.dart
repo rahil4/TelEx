@@ -16,6 +16,7 @@ class CachedMessage {
   final String? mimeType;
   final int? sizeBytes;
   final DateTime date;
+  final String? thumbnailBase64;
 
   CachedMessage({
     required this.messageId,
@@ -23,6 +24,7 @@ class CachedMessage {
     this.mimeType,
     this.sizeBytes,
     required this.date,
+    this.thumbnailBase64,
   });
 
   @override
@@ -46,6 +48,13 @@ class ManifestService {
   Manifest manifest = Manifest.empty();
   List<CachedMessage> _cachedMessages = [];
 
+  /// message_id -> base64 minithumbnail data, kept in memory for fast list
+  /// rendering. Populated during sync from Telegram's tiny embedded preview
+  /// (no separate file download needed) — same idea as a phone gallery's
+  /// grid, which never downloads full images just to show a thumbnail.
+  final Map<int, String> _thumbnails = {};
+  String? thumbnailFor(int messageId) => _thumbnails[messageId];
+
   final _changesController = StreamController<void>.broadcast();
   Stream<void> get changes => _changesController.stream;
 
@@ -55,7 +64,7 @@ class ManifestService {
     final path = p.join(dir.path, 'manifest_cache.db');
     _db = await openDatabase(
       path,
-      version: 1,
+      version: 2,
       onCreate: (db, v) async {
         await db.execute('''
           CREATE TABLE kv (k TEXT PRIMARY KEY, v TEXT)
@@ -82,6 +91,16 @@ class ManifestService {
             mime_type TEXT, size_bytes INTEGER, date INTEGER
           )
         ''');
+        await db.execute('''
+          CREATE TABLE thumbnails (message_id INTEGER PRIMARY KEY, data TEXT)
+        ''');
+      },
+      onUpgrade: (db, oldVersion, newVersion) async {
+        if (oldVersion < 2) {
+          await db.execute('''
+            CREATE TABLE IF NOT EXISTS thumbnails (message_id INTEGER PRIMARY KEY, data TEXT)
+          ''');
+        }
       },
     );
     return _db!;
@@ -109,6 +128,7 @@ class ManifestService {
     final tagRows = await db.query('tags');
     final itemRows = await db.query('items');
     final msgRows = await db.query('cached_messages', orderBy: 'date DESC');
+    final thumbRows = await db.query('thumbnails');
 
     manifest = Manifest(
       folders: folderRows.map((r) => ManifestFolder(
@@ -137,6 +157,11 @@ class ManifestService {
           )).toList(),
     );
 
+    _thumbnails.clear();
+    for (final r in thumbRows) {
+      _thumbnails[r['message_id'] as int] = r['data'] as String;
+    }
+
     _cachedMessages = msgRows
         .map((r) => CachedMessage(
               messageId: r['message_id'] as int,
@@ -144,6 +169,7 @@ class ManifestService {
               mimeType: r['mime_type'] as String?,
               sizeBytes: r['size_bytes'] as int?,
               date: DateTime.fromMillisecondsSinceEpoch((r['date'] as int) * 1000),
+              thumbnailBase64: _thumbnails[r['message_id'] as int],
             ))
         .toList();
 
@@ -480,6 +506,13 @@ class ManifestService {
             'size_bytes': extracted.sizeBytes,
             'date': m['date'],
           }, conflictAlgorithm: ConflictAlgorithm.replace);
+          if (extracted.thumbnailBase64 != null) {
+            await db.insert('thumbnails', {
+              'message_id': id,
+              'data': extracted.thumbnailBase64,
+            }, conflictAlgorithm: ConflictAlgorithm.replace);
+            _thumbnails[id] = extracted.thumbnailBase64!;
+          }
         }
       }
 
@@ -507,6 +540,7 @@ class ManifestService {
               mimeType: r['mime_type'] as String?,
               sizeBytes: r['size_bytes'] as int?,
               date: DateTime.fromMillisecondsSinceEpoch((r['date'] as int) * 1000),
+              thumbnailBase64: _thumbnails[r['message_id'] as int],
             ))
         .toList();
   }
@@ -528,7 +562,25 @@ class ManifestService {
       mimeType: extracted.mime,
       sizeBytes: size,
       date: DateTime.fromMillisecondsSinceEpoch(((message['date'] as num?) ?? 0).toInt() * 1000),
+      thumbnailBase64: _extractMinithumbnail(content),
     );
+  }
+
+  /// Telegram embeds a tiny (a few hundred bytes) low-res JPEG directly in
+  /// photo/video messages specifically so clients can show an instant
+  /// preview without downloading anything — exactly what a phone gallery's
+  /// grid does. TDLib delivers its `data` field already base64-encoded.
+  String? _extractMinithumbnail(Map<String, dynamic> content) {
+    Map<String, dynamic>? mini;
+    switch (content['@type']) {
+      case 'messagePhoto':
+        mini = (content['photo'] as Map<String, dynamic>?)?['minithumbnail'] as Map<String, dynamic>?;
+        break;
+      case 'messageVideo':
+        mini = (content['video'] as Map<String, dynamic>?)?['minithumbnail'] as Map<String, dynamic>?;
+        break;
+    }
+    return mini?['data'] as String?;
   }
 
   /// Downloads the actual file behind a Saved Messages entry (by re-fetching

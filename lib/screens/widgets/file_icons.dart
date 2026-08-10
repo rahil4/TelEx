@@ -1,3 +1,5 @@
+import 'dart:convert';
+import 'dart:typed_data';
 import 'package:fluent_ui/fluent_ui.dart';
 
 /// Two-tone Fluent-style folder icon (matches the yellow folder used across
@@ -77,11 +79,14 @@ FileTypeStyle styleForFileName(String fileName) {
 }
 
 /// Colored rounded-rect file-type icon with a folded corner + short label,
-/// mirroring the desktop Explorer mockup.
+/// mirroring the desktop Explorer mockup. When [thumbnailBase64] is given
+/// (photos/videos have one cached from sync — see ManifestService), shows
+/// the actual image instead, like a phone gallery grid.
 class FileTypeIcon extends StatelessWidget {
   final String fileName;
   final double size;
-  const FileTypeIcon({super.key, required this.fileName, this.size = 40});
+  final String? thumbnailBase64;
+  const FileTypeIcon({super.key, required this.fileName, this.size = 40, this.thumbnailBase64});
 
   @override
   Widget build(BuildContext context) {
@@ -89,6 +94,32 @@ class FileTypeIcon extends StatelessWidget {
     final isImage = ['jpg', 'jpeg', 'png'].contains(
       fileName.contains('.') ? fileName.split('.').last.toLowerCase() : '',
     );
+
+    if (thumbnailBase64 != null) {
+      Uint8List? bytes;
+      try {
+        bytes = base64Decode(thumbnailBase64!);
+      } catch (_) {
+        bytes = null;
+      }
+      if (bytes != null) {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(size * 0.12),
+          child: Image.memory(
+            bytes,
+            width: size,
+            height: size,
+            fit: BoxFit.cover,
+            gaplessPlayback: true,
+            errorBuilder: (context, error, stackTrace) => _fallbackIcon(style, isImage),
+          ),
+        );
+      }
+    }
+    return _fallbackIcon(style, isImage);
+  }
+
+  Widget _fallbackIcon(FileTypeStyle style, bool isImage) {
     return SizedBox(
       width: size,
       height: size,
