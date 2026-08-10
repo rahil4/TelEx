@@ -110,7 +110,7 @@ class _MobileFolderPageState extends State<MobileFolderPage> {
                 ),
               ),
             Expanded(
-              child: entries.isEmpty
+              child: (entries.isEmpty && !isRoot)
                   ? Center(
                       child: Text(
                         widget.uncategorized ? 'همه‌چیز دسته‌بندی شده — چیزی اینجا نیست' : 'این پوشه خالی است',
