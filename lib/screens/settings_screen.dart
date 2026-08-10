@@ -40,65 +40,108 @@ class _SettingsScreenState extends State<SettingsScreen> {
       _saving = true;
       _error = null;
     });
-    await SettingsService.instance.saveCredentials(apiId: id, apiHash: hash);
-    await AuthService.instance.initialize();
-    if (mounted) setState(() => _saving = false);
+    try {
+      await SettingsService.instance.saveCredentials(apiId: id, apiHash: hash);
+      // Defensive timeout: if connecting to Telegram ever hangs for any
+      // reason, this surfaces a clear error instead of a spinner that
+      // never stops.
+      await AuthService.instance.initialize().timeout(
+        const Duration(seconds: 25),
+        onTimeout: () => throw Exception('اتصال به تلگرام بیش از حد طول کشید. اینترنت/VPN را چک کن.'),
+      );
+    } catch (e) {
+      if (mounted) setState(() => _error = e.toString());
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     return ScaffoldPage(
-      header: const PageHeader(title: Text('تنظیمات اتصال به تلگرام')),
-      content: Padding(
-        padding: const EdgeInsets.all(20),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 480),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              InfoBar(
-                title: const Text('شناسه اتصال شخصی'),
-                content: const Text(
-                  'برای استفاده از این برنامه به یک api_id و api_hash نیاز داری که '
-                  'به‌صورت رایگان و مخصوص حساب خودت از my.telegram.org می‌گیری. '
-                  'این مقادیر فقط روی همین دستگاه، به‌صورت رمزنگاری‌شده ذخیره می‌شن.',
+      padding: EdgeInsets.zero,
+      content: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.all(18),
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 480),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                const SizedBox(height: 10),
+                const Text('تنظیمات اتصال به تلگرام',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700)),
+                const SizedBox(height: 18),
+                _card(
+                  child: InfoBar(
+                    title: const Text('شناسه اتصال شخصی'),
+                    content: const Text(
+                      'برای استفاده از این برنامه به یک api_id و api_hash نیاز داری که '
+                      'به‌صورت رایگان و مخصوص حساب خودت از my.telegram.org می‌گیری. '
+                      'این مقادیر فقط روی همین دستگاه، به‌صورت رمزنگاری‌شده ذخیره می‌شن.',
+                    ),
+                    severity: InfoBarSeverity.info,
+                  ),
                 ),
-                severity: InfoBarSeverity.info,
-              ),
-              const SizedBox(height: 20),
-              const Text('شناسه برنامه (api_id)'),
-              const SizedBox(height: 6),
-              TextBox(
-                controller: _apiIdController,
-                placeholder: 'مثلاً 1234567',
-                keyboardType: TextInputType.number,
-              ),
-              const SizedBox(height: 16),
-              const Text('رمز برنامه (api_hash)'),
-              const SizedBox(height: 6),
-              TextBox(
-                controller: _apiHashController,
-                placeholder: 'رشتهٔ ۳۲ کاراکتری',
-              ),
-              const SizedBox(height: 20),
-              if (_error != null) ...[
-                InfoBar(
-                  title: Text(_error!),
-                  severity: InfoBarSeverity.error,
+                const SizedBox(height: 16),
+                _card(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: [
+                      const Text('شناسه برنامه (api_id)', style: TextStyle(fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        height: 44,
+                        child: TextBox(
+                          controller: _apiIdController,
+                          placeholder: 'مثلاً 1234567',
+                          keyboardType: TextInputType.number,
+                        ),
+                      ),
+                      const SizedBox(height: 18),
+                      const Text('رمز برنامه (api_hash)', style: TextStyle(fontWeight: FontWeight.w600)),
+                      const SizedBox(height: 8),
+                      SizedBox(
+                        height: 44,
+                        child: TextBox(
+                          controller: _apiHashController,
+                          placeholder: 'رشتهٔ ۳۲ کاراکتری',
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 16),
+                if (_error != null) ...[
+                  InfoBar(title: Text(_error!), severity: InfoBarSeverity.error),
+                  const SizedBox(height: 12),
+                ],
+                SizedBox(
+                  height: 46,
+                  child: FilledButton(
+                    onPressed: _saving ? null : _save,
+                    child: _saving
+                        ? const SizedBox(width: 16, height: 16, child: ProgressRing(strokeWidth: 2))
+                        : const Text('ذخیره و ادامه'),
+                  ),
+                ),
+                const SizedBox(height: 20),
               ],
-              FilledButton(
-                onPressed: _saving ? null : _save,
-                child: _saving
-                    ? SizedBox(
-                        width: 16, height: 16, child: ProgressRing(strokeWidth: 2))
-                    : const Text('ذخیره و ادامه'),
-              ),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
+
+  Widget _card({required Widget child}) => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(10),
+          border: Border.all(color: FluentTheme.of(context).resources.dividerStrokeColorDefault),
+        ),
+        child: child,
+      );
 }

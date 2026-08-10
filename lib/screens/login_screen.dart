@@ -64,50 +64,73 @@ class _LoginScreenState extends State<LoginScreen> {
   Widget build(BuildContext context) {
     final isPassword = widget.status == AuthStatus.waitPassword;
     return ScaffoldPage(
-      content: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 420),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Text(_title, style: FluentTheme.of(context).typography.subtitle),
-              const SizedBox(height: 20),
-              if (widget.status == AuthStatus.error) ...[
-                InfoBar(
-                  title: Text(AuthService.instance.lastError ?? 'خطایی رخ داد'),
-                  severity: InfoBarSeverity.error,
-                ),
-                const SizedBox(height: 16),
-                FilledButton(
-                  onPressed: AuthService.instance.retry,
-                  child: const Text('تلاش دوباره'),
-                ),
-              ] else ...[
-                if (isPassword)
-                  PasswordBox(
-                    controller: _controller,
-                    placeholder: _placeholder,
-                    onSubmitted: (_) => _submit(),
-                  )
-                else
-                  TextBox(
-                    controller: _controller,
-                    placeholder: _placeholder,
-                    keyboardType: widget.status == AuthStatus.waitPhoneNumber
-                        ? TextInputType.phone
-                        : TextInputType.number,
-                    onSubmitted: (_) => _submit(),
-                  ),
-                const SizedBox(height: 16),
-                FilledButton(
-                  onPressed: _busy ? null : _submit,
-                  child: _busy
-                      ? SizedBox(width: 16, height: 16, child: ProgressRing(strokeWidth: 2))
-                      : const Text('ادامه'),
-                ),
-              ],
-            ],
+      padding: EdgeInsets.zero,
+      content: SafeArea(
+        child: Center(
+          child: SingleChildScrollView(
+            padding: const EdgeInsets.all(20),
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(_title,
+                      style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 20),
+                  if (widget.status == AuthStatus.error) ...[
+                    InfoBar(
+                      title: Text(AuthService.instance.lastError ?? 'خطایی رخ داد'),
+                      severity: InfoBarSeverity.error,
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      height: 46,
+                      child: FilledButton(
+                        onPressed: AuthService.instance.retry,
+                        child: const Text('تلاش دوباره'),
+                      ),
+                    ),
+                  ] else ...[
+                    Container(
+                      padding: const EdgeInsets.all(14),
+                      decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: BorderRadius.circular(10),
+                        border: Border.all(color: FluentTheme.of(context).resources.dividerStrokeColorDefault),
+                      ),
+                      child: SizedBox(
+                        height: 44,
+                        child: isPassword
+                            ? PasswordBox(
+                                controller: _controller,
+                                placeholder: _placeholder,
+                                onSubmitted: (_) => _submit(),
+                              )
+                            : TextBox(
+                                controller: _controller,
+                                placeholder: _placeholder,
+                                keyboardType: widget.status == AuthStatus.waitPhoneNumber
+                                    ? TextInputType.phone
+                                    : TextInputType.number,
+                                onSubmitted: (_) => _submit(),
+                              ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      height: 46,
+                      child: FilledButton(
+                        onPressed: _busy ? null : _submit,
+                        child: _busy
+                            ? const SizedBox(width: 16, height: 16, child: ProgressRing(strokeWidth: 2))
+                            : const Text('ادامه'),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
           ),
         ),
       ),
