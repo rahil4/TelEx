@@ -34,6 +34,9 @@ dependencies:
   # opens a downloaded file with the OS's native app chooser
   open_file: ^3.5.0
 
+  # lets the person pick a file from device storage to upload to Telegram
+  file_picker: ^8.1.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

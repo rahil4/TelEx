@@ -17,6 +17,7 @@ class MobileFilePage extends StatefulWidget {
 class _MobileFilePageState extends State<MobileFilePage> {
   bool _opening = false;
   String? _openError;
+  bool _deleting = false;
 
   @override
   Widget build(BuildContext context) {
@@ -42,6 +43,12 @@ class _MobileFilePageState extends State<MobileFilePage> {
                   IconButton(icon: const Icon(FluentIcons.back), onPressed: () => Navigator.of(context).pop()),
                   const Expanded(
                     child: Text('پیش‌نمایش', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
+                  ),
+                  IconButton(
+                    icon: _deleting
+                        ? const SizedBox(width: 14, height: 14, child: ProgressRing(strokeWidth: 2))
+                        : const Icon(FluentIcons.delete),
+                    onPressed: _deleting ? null : _confirmDelete,
                   ),
                 ],
               ),
@@ -148,6 +155,36 @@ class _MobileFilePageState extends State<MobileFilePage> {
         child: Row(children: [icon, const SizedBox(width: 10), Expanded(child: Text(label))]),
       ),
     );
+  }
+
+  Future<void> _confirmDelete() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => ContentDialog(
+        title: const Text('حذف فایل'),
+        content: const Text('این فایل کاملاً از Saved Messages تلگرام حذف می‌شود و قابل بازگشت نیست. مطمئنی؟'),
+        actions: [
+          Button(child: const Text('انصراف'), onPressed: () => Navigator.pop(ctx, false)),
+          FilledButton(child: const Text('حذف'), onPressed: () => Navigator.pop(ctx, true)),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final entry = widget.entry;
+    final messageId = entry is ManifestItem ? entry.telegramMessageId : (entry as CachedMessage).messageId;
+    setState(() => _deleting = true);
+    try {
+      await ManifestService.instance.deleteMessage(messageId);
+      if (mounted) Navigator.of(context).pop();
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _deleting = false;
+          _openError = 'حذف ناموفق بود: $e';
+        });
+      }
+    }
   }
 
   Future<void> _openFile() async {

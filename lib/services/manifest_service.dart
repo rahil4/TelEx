@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -343,22 +344,29 @@ class ManifestService {
       'message_id': messageId,
     });
     final content = msg['content'] as Map<String, dynamic>?;
-    final text = (content?['text'] as Map<String, dynamic>?)?['text'] as String?;
-    if (text == null) return;
-    final jsonPart = text.startsWith(_manifestMarker)
-        ? text.substring(_manifestMarker.length).trim()
-        : text.trim();
-    if (jsonPart.isEmpty) return;
-    manifest = Manifest.fromJson(jsonDecode(jsonPart) as Map<String, dynamic>);
+    final doc = content?['document'] as Map<String, dynamic>?;
+    final file = doc?['document'] as Map<String, dynamic>?;
+    final fileId = (file?['id'] as num?)?.toInt();
+    if (fileId == null) return;
+
+    final downloaded = await TdService.instance.send({
+      '@type': 'downloadFile',
+      'file_id': fileId,
+      'priority': 32,
+      'synchronous': true,
+    });
+    final localPath = (downloaded['local'] as Map<String, dynamic>?)?['path'] as String?;
+    if (localPath == null) return;
+
+    final text = await File(localPath).readAsString();
+    manifest = Manifest.fromJson(jsonDecode(text) as Map<String, dynamic>);
   }
 
-  /// Serializes [manifest] to a plain-text message and sends/pins/edits it
-  /// in Saved Messages. Call after any local edit (new folder, move file,
-  /// ...). Stored as text rather than an attached file: it's simpler,
-  /// avoids a local-file-upload step entirely, and a compact JSON manifest
-  /// comfortably fits inside Telegram's ~4096 character message limit for
-  /// a personal folder structure. If this ever becomes a real constraint
-  /// (very large folder trees), this is the place to switch to a file.
+  /// Serializes [manifest] to a small JSON file and uploads/pins/edits it in
+  /// Saved Messages as a document (not a plain-text message — keeps
+  /// Saved Messages tidy when browsed normally, and has no size limit tied
+  /// to Telegram's ~4096-character text cap). Call after any local edit
+  /// (new folder, move file, ...).
   Future<void> pushManifest() async {
     final chatId = await _resolveSavedMessagesChatId();
     await _pushManifest(chatId, create: _manifestMessageId == null);
@@ -369,17 +377,18 @@ class ManifestService {
     manifest.revision += 1;
     manifest.updatedAt = DateTime.now();
 
-    final body = '$_manifestMarker\n${jsonEncode(manifest.toJson())}';
-    if (body.length > 4000) {
-      throw StateError(
-        'منیفست به ${body.length} کاراکتر رسیده و به محدودیت پیام تلگرام نزدیک است. '
-        'این نسخه هنوز از ذخیرهٔ فایلی پشتیبانی نمی‌کند — لازم است تعداد فولدر/فایل کم شود.',
-      );
-    }
+    final dir = await getTemporaryDirectory();
+    final file = File(p.join(dir.path, 'kavoshgar_manifest.json'));
+    await file.writeAsString(jsonEncode(manifest.toJson()), flush: true);
 
+    final fileId = await _uploadAndAwaitReady(
+      file.path,
+      fileType: const {'@type': 'fileTypeDocument'},
+    );
     final content = <String, dynamic>{
-      '@type': 'inputMessageText',
-      'text': <String, dynamic>{'@type': 'formattedText', 'text': body},
+      '@type': 'inputMessageDocument',
+      'document': <String, dynamic>{'@type': 'inputFileId', 'id': fileId},
+      'caption': <String, dynamic>{'@type': 'formattedText', 'text': _manifestMarker},
     };
 
     if (create) {
@@ -400,12 +409,49 @@ class ManifestService {
       });
     } else {
       await TdService.instance.send({
-        '@type': 'editMessageText',
+        '@type': 'editMessageMedia',
         'chat_id': chatId,
         'message_id': _manifestMessageId,
         'input_message_content': content,
       });
     }
+  }
+
+  /// Uploads a local file to Telegram's servers and waits until the upload
+  /// is actually done, returning the resulting file id (usable anywhere an
+  /// InputFile is needed, e.g. as `inputFileId` in a message). Splitting
+  /// upload from message composition like this — TDLib's documented,
+  /// recommended pattern — is also what lets us report/await progress, and
+  /// sidesteps whatever previously went wrong inlining inputFileLocal
+  /// directly inside sendMessage (never fully root-caused; this two-step
+  /// path is the more robust, standard one either way).
+  Future<int> _uploadAndAwaitReady(String localPath, {required Map<String, dynamic> fileType}) async {
+    final uploaded = await TdService.instance.send({
+      '@type': 'uploadFile',
+      'file': {'@type': 'inputFileLocal', 'path': localPath},
+      'file_type': fileType,
+      'priority': 1,
+    });
+    final fileId = (uploaded['id'] as num).toInt();
+    final remote = uploaded['remote'] as Map<String, dynamic>?;
+    if (remote?['is_uploading_completed'] == true) return fileId;
+
+    final completer = Completer<int>();
+    late final StreamSubscription sub;
+    sub = TdService.instance.updates.listen((u) {
+      if (u['@type'] != 'updateFile') return;
+      final f = u['file'] as Map<String, dynamic>?;
+      if (f == null || (f['id'] as num).toInt() != fileId) return;
+      final rem = f['remote'] as Map<String, dynamic>?;
+      if (rem?['is_uploading_completed'] == true) {
+        completer.complete(fileId);
+        sub.cancel();
+      }
+    });
+    return completer.future.timeout(const Duration(seconds: 90), onTimeout: () {
+      sub.cancel();
+      throw TimeoutException('آپلود فایل بیش از حد طول کشید');
+    });
   }
 
   /// sendMessage() returns immediately with a message carrying a temporary,
@@ -662,5 +708,81 @@ class ManifestService {
     }
     if (file == null) return null;
     return (file: file, name: name ?? 'فایل_$messageId', mime: mime);
+  }
+
+  // ---------------------------------------------------------------------
+  // import from device / delete
+  // ---------------------------------------------------------------------
+
+  /// Uploads a file picked from the device's own storage into Saved
+  /// Messages as a new document message. If [intoFolderId] is given, the
+  /// new item is filed straight into that folder instead of landing in
+  /// دسته‌بندی‌نشده like a freshly-discovered message would.
+  Future<void> importLocalFile(String localPath, String fileName, {String? intoFolderId}) async {
+    final chatId = await _resolveSavedMessagesChatId();
+    final fileId = await _uploadAndAwaitReady(localPath, fileType: const {'@type': 'fileTypeDocument'});
+
+    final sent = await TdService.instance.send({
+      '@type': 'sendMessage',
+      'chat_id': chatId,
+      'input_message_content': {
+        '@type': 'inputMessageDocument',
+        'document': {'@type': 'inputFileId', 'id': fileId},
+      },
+    });
+    final tempId = (sent['id'] as num).toInt();
+    final messageId = await _awaitMessageConfirmed(tempId);
+
+    // Record it locally right away so it shows up immediately without
+    // waiting for the next full sync.
+    final db = await _openDb();
+    await db.insert('cached_messages', {
+      'message_id': messageId,
+      'file_name': fileName,
+      'mime_type': null,
+      'size_bytes': await File(localPath).length(),
+      'date': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+
+    if (intoFolderId != null) {
+      manifest.items.add(ManifestItem(
+        telegramMessageId: messageId,
+        folderId: intoFolderId,
+        displayName: fileName,
+        sizeBytes: await File(localPath).length(),
+        originalFileName: fileName,
+      ));
+      await pushManifest();
+    }
+
+    await loadFromLocalCache();
+    _changesController.add(null);
+  }
+
+  /// Deletes a message from Saved Messages entirely (not just from this
+  /// app's organization) and cleans up every local trace of it.
+  Future<void> deleteMessage(int messageId) async {
+    final chatId = await _resolveSavedMessagesChatId();
+    await TdService.instance.send({
+      '@type': 'deleteMessages',
+      'chat_id': chatId,
+      'message_ids': [messageId],
+      'revoke': true,
+    });
+
+    final hadFolderEntry = manifest.items.any((i) => i.telegramMessageId == messageId);
+    manifest.items.removeWhere((i) => i.telegramMessageId == messageId);
+
+    final db = await _openDb();
+    await db.delete('cached_messages', where: 'message_id = ?', whereArgs: [messageId]);
+    await db.delete('thumbnails', where: 'message_id = ?', whereArgs: [messageId]);
+    _thumbnails.remove(messageId);
+    _cachedMessages.removeWhere((m) => m.messageId == messageId);
+
+    await _persistLocalCache();
+    _changesController.add(null);
+    if (hadFolderEntry) {
+      unawaited(pushManifest());
+    }
   }
 }
