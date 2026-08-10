@@ -1,4 +1,5 @@
 import 'package:fluent_ui/fluent_ui.dart';
+import 'package:open_file/open_file.dart';
 import '../../models/manifest.dart';
 import '../../services/manifest_service.dart';
 import '../widgets/file_icons.dart';
@@ -14,6 +15,9 @@ class MobileFilePage extends StatefulWidget {
 }
 
 class _MobileFilePageState extends State<MobileFilePage> {
+  bool _opening = false;
+  String? _openError;
+
   @override
   Widget build(BuildContext context) {
     final entry = widget.entry;
@@ -46,14 +50,19 @@ class _MobileFilePageState extends State<MobileFilePage> {
               child: ListView(
                 padding: const EdgeInsets.all(16),
                 children: [
-                  Container(
-                    height: 200,
-                    alignment: Alignment.center,
-                    decoration: BoxDecoration(
-                      color: FluentTheme.of(context).micaBackgroundColor,
-                      borderRadius: BorderRadius.circular(8),
+                  GestureDetector(
+                    onTap: _opening ? null : _openFile,
+                    child: Container(
+                      height: 200,
+                      alignment: Alignment.center,
+                      decoration: BoxDecoration(
+                        color: FluentTheme.of(context).micaBackgroundColor,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: _opening
+                          ? const ProgressRing()
+                          : FileTypeIcon(fileName: name, size: 64),
                     ),
-                    child: FileTypeIcon(fileName: name, size: 64),
                   ),
                   const SizedBox(height: 14),
                   Text(name, style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w700)),
@@ -66,14 +75,40 @@ class _MobileFilePageState extends State<MobileFilePage> {
                     const Text('یادداشت', style: TextStyle(fontSize: 11, color: Colors.grey)),
                     Text(note),
                   ],
+                  if (_openError != null) ...[
+                    const SizedBox(height: 14),
+                    InfoBar(
+                      title: const Text('باز کردن فایل ناموفق بود'),
+                      content: Text(_openError!),
+                      severity: InfoBarSeverity.error,
+                      onClose: () => setState(() => _openError = null),
+                    ),
+                  ],
                   const SizedBox(height: 20),
-                  FilledButton(
-                    onPressed: _pickFolderAndMove,
-                    child: const Row(mainAxisSize: MainAxisSize.min, children: [
-                      Icon(FluentIcons.move, size: 14),
-                      SizedBox(width: 8),
-                      Text('انتقال به پوشه'),
-                    ]),
+                  SizedBox(
+                    height: 46,
+                    child: FilledButton(
+                      onPressed: _opening ? null : _openFile,
+                      child: _opening
+                          ? const SizedBox(width: 16, height: 16, child: ProgressRing(strokeWidth: 2))
+                          : const Row(mainAxisSize: MainAxisSize.min, children: [
+                              Icon(FluentIcons.open_file, size: 14),
+                              SizedBox(width: 8),
+                              Text('باز کردن فایل'),
+                            ]),
+                    ),
+                  ),
+                  const SizedBox(height: 10),
+                  SizedBox(
+                    height: 46,
+                    child: Button(
+                      onPressed: _pickFolderAndMove,
+                      child: const Row(mainAxisSize: MainAxisSize.min, children: [
+                        Icon(FluentIcons.move, size: 14),
+                        SizedBox(width: 8),
+                        Text('انتقال به پوشه'),
+                      ]),
+                    ),
                   ),
                 ],
               ),
@@ -113,6 +148,26 @@ class _MobileFilePageState extends State<MobileFilePage> {
         child: Row(children: [icon, const SizedBox(width: 10), Expanded(child: Text(label))]),
       ),
     );
+  }
+
+  Future<void> _openFile() async {
+    final entry = widget.entry;
+    final messageId = entry is ManifestItem ? entry.telegramMessageId : (entry as CachedMessage).messageId;
+    setState(() {
+      _opening = true;
+      _openError = null;
+    });
+    try {
+      final path = await ManifestService.instance.downloadFileForMessage(messageId);
+      final result = await OpenFile.open(path);
+      if (result.type != ResultType.done) {
+        setState(() => _openError = result.message);
+      }
+    } catch (e) {
+      setState(() => _openError = e.toString());
+    } finally {
+      if (mounted) setState(() => _opening = false);
+    }
   }
 
   Future<void> _pickFolderAndMove() async {

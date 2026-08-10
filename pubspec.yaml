@@ -31,6 +31,9 @@ dependencies:
 
   intl: ^0.20.0
 
+  # opens a downloaded file with the OS's native app chooser
+  open_file: ^3.5.0
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

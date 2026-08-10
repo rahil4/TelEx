@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/foundation.dart' show defaultTargetPlatform, TargetPlatform;
 import 'package:fluent_ui/fluent_ui.dart';
 import 'theme/app_theme.dart';
@@ -25,40 +26,63 @@ class TelegramExplorerApp extends StatelessWidget {
   }
 }
 
-class _RootRouter extends StatelessWidget {
+class _RootRouter extends StatefulWidget {
   const _RootRouter();
 
   @override
+  State<_RootRouter> createState() => _RootRouterState();
+}
+
+class _RootRouterState extends State<_RootRouter> {
+  AuthStatus _status = AuthStatus.starting;
+  late final StreamSubscription<AuthStatus> _sub;
+
+  @override
+  void initState() {
+    super.initState();
+    // Subscribe FIRST, then kick off initialize(). On a cold start with an
+    // already-authenticated session, TDLib can resolve straight to "ready"
+    // almost instantly — if initialize() were called before this widget
+    // (and its subscription) existed, that status change could fire into
+    // an empty broadcast stream and be lost forever, leaving the app stuck
+    // on the loading spinner. This ordering makes that impossible.
+    _sub = AuthService.instance.status.listen((s) {
+      if (mounted) setState(() => _status = s);
+    });
+    _status = AuthService.instance.current;
+    AuthService.instance.initialize();
+  }
+
+  @override
+  void dispose() {
+    _sub.cancel();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    return StreamBuilder<AuthStatus>(
-      stream: AuthService.instance.status,
-      initialData: AuthService.instance.current,
-      builder: (context, snapshot) {
-        final status = snapshot.data ?? AuthStatus.starting;
-        switch (status) {
-          case AuthStatus.starting:
-            return ScaffoldPage(
-              content: Center(child: ProgressRing()),
-            );
-          case AuthStatus.needCredentials:
-            return const SettingsScreen();
-          case AuthStatus.waitPhoneNumber:
-          case AuthStatus.waitCode:
-          case AuthStatus.waitPassword:
-          case AuthStatus.error:
-            return LoginScreen(status: status);
-          case AuthStatus.ready:
-            final isMobilePlatform = defaultTargetPlatform == TargetPlatform.android ||
-                defaultTargetPlatform == TargetPlatform.iOS;
-            return isMobilePlatform
-                ? const MobileFolderPage(title: 'کاوشگر تلگرام')
-                : const ExplorerScreen();
-          case AuthStatus.loggingOut:
-            return const ScaffoldPage(
-              content: Center(child: Text('در حال خروج…')),
-            );
-        }
-      },
-    );
+    switch (_status) {
+      case AuthStatus.starting:
+        return ScaffoldPage(
+          content: Center(child: ProgressRing()),
+        );
+      case AuthStatus.needCredentials:
+        return const SettingsScreen();
+      case AuthStatus.waitPhoneNumber:
+      case AuthStatus.waitCode:
+      case AuthStatus.waitPassword:
+      case AuthStatus.error:
+        return LoginScreen(status: _status);
+      case AuthStatus.ready:
+        final isMobilePlatform = defaultTargetPlatform == TargetPlatform.android ||
+            defaultTargetPlatform == TargetPlatform.iOS;
+        return isMobilePlatform
+            ? const MobileFolderPage(title: 'کاوشگر تلگرام')
+            : const ExplorerScreen();
+      case AuthStatus.loggingOut:
+        return const ScaffoldPage(
+          content: Center(child: Text('در حال خروج…')),
+        );
+    }
   }
 }

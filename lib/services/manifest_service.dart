@@ -517,9 +517,58 @@ class ManifestService {
   CachedMessage? _extractMediaInfo(Map<String, dynamic> message) {
     final content = message['content'] as Map<String, dynamic>?;
     if (content == null) return null;
-    final type = content['@type'] as String?;
     final id = (message['id'] as num).toInt();
+    final extracted = _extractFileFromContent(content, id);
+    if (extracted == null) return null;
 
+    final size = (extracted.file['size'] as num?)?.toInt();
+    return CachedMessage(
+      messageId: id,
+      fileName: extracted.name,
+      mimeType: extracted.mime,
+      sizeBytes: size,
+      date: DateTime.fromMillisecondsSinceEpoch(((message['date'] as num?) ?? 0).toInt() * 1000),
+    );
+  }
+
+  /// Downloads the actual file behind a Saved Messages entry (by re-fetching
+  /// the message fresh rather than trusting any previously cached file id,
+  /// which keeps this correct even for items synced before this feature
+  /// existed) and returns the local path once the download completes.
+  Future<String> downloadFileForMessage(int messageId) async {
+    final chatId = await _resolveSavedMessagesChatId();
+    final msg = await TdService.instance.send({
+      '@type': 'getMessage',
+      'chat_id': chatId,
+      'message_id': messageId,
+    });
+    final content = msg['content'] as Map<String, dynamic>?;
+    if (content == null) {
+      throw StateError('محتوای پیام یافت نشد');
+    }
+    final extracted = _extractFileFromContent(content, messageId);
+    if (extracted == null) {
+      throw StateError('این پیام فایل قابل‌بازکردنی ندارد');
+    }
+    final fileId = (extracted.file['id'] as num).toInt();
+    final downloaded = await TdService.instance.send({
+      '@type': 'downloadFile',
+      'file_id': fileId,
+      'priority': 32,
+      'synchronous': true,
+    });
+    final localPath = (downloaded['local'] as Map<String, dynamic>?)?['path'] as String?;
+    if (localPath == null) {
+      throw StateError('دانلود فایل ناموفق بود');
+    }
+    return localPath;
+  }
+
+  ({Map<String, dynamic> file, String name, String? mime})? _extractFileFromContent(
+    Map<String, dynamic> content,
+    int messageId,
+  ) {
+    final type = content['@type'] as String?;
     Map<String, dynamic>? file;
     String? name;
     String? mime;
@@ -535,38 +584,31 @@ class ManifestService {
         final sizes = (content['photo'] as Map<String, dynamic>?)?['sizes'] as List?;
         final biggest = sizes?.isNotEmpty == true ? sizes!.last as Map<String, dynamic> : null;
         file = biggest?['photo'] as Map<String, dynamic>?;
-        name = 'عکس_$id.jpg';
+        name = 'عکس_$messageId.jpg';
         mime = 'image/jpeg';
         break;
       case 'messageVideo':
         final vid = content['video'] as Map<String, dynamic>?;
         file = vid?['video'] as Map<String, dynamic>?;
-        name = vid?['file_name'] as String? ?? 'ویدیو_$id.mp4';
+        name = vid?['file_name'] as String? ?? 'ویدیو_$messageId.mp4';
         mime = vid?['mime_type'] as String?;
         break;
       case 'messageAudio':
         final aud = content['audio'] as Map<String, dynamic>?;
         file = aud?['audio'] as Map<String, dynamic>?;
-        name = aud?['file_name'] as String? ?? 'صدا_$id.mp3';
+        name = aud?['file_name'] as String? ?? 'صدا_$messageId.mp3';
         mime = aud?['mime_type'] as String?;
         break;
       case 'messageVoiceNote':
         final vn = content['voice_note'] as Map<String, dynamic>?;
         file = vn?['voice'] as Map<String, dynamic>?;
-        name = 'پیام‌صوتی_$id.ogg';
+        name = 'پیام‌صوتی_$messageId.ogg';
         mime = vn?['mime_type'] as String?;
         break;
       default:
         return null;
     }
-
-    final size = (file?['size'] as num?)?.toInt();
-    return CachedMessage(
-      messageId: id,
-      fileName: name ?? 'فایل_$id',
-      mimeType: mime,
-      sizeBytes: size,
-      date: DateTime.fromMillisecondsSinceEpoch(((message['date'] as num?) ?? 0).toInt() * 1000),
-    );
+    if (file == null) return null;
+    return (file: file, name: name ?? 'فایل_$messageId', mime: mime);
   }
 }
