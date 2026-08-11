@@ -62,20 +62,24 @@ jobs:
         run: flutter pub get
 
       # file_picker's transitive dependency (flutter_plugin_android_lifecycle)
-      # requires compiling against Android API 36+. Flutter's generated
-      # build.gradle.kts defaults to whatever the installed Flutter SDK
-      # ships (often lower), so bump it explicitly rather than waiting for
-      # subosito/flutter-action's bundled default to catch up.
-      - name: Bump compileSdk to 36
+      # requires compiling against Android API 36+. Patching only the app
+      # module's compileSdk (tried previously) isn't enough — each Flutter
+      # plugin (file_picker included) is its own Gradle subproject with its
+      # own compileSdk, inherited from the Flutter SDK's shared default
+      # (currently lower than 36) rather than from the app module. Forcing
+      # it on every subproject via the root build.gradle.kts covers all of
+      # them at once, including plugins we don't control directly.
+      - name: Force compileSdk 36 on every Android module
         run: |
-          GRADLE=android/app/build.gradle.kts
-          sed -i 's/compileSdk = flutter.compileSdkVersion/compileSdk = 36/' "$GRADLE"
-          if ! grep -q "compileSdk = 36" "$GRADLE"; then
-            echo "::error::Expected pattern not found in $GRADLE — inspect the file and update the sed pattern above."
-            cat "$GRADLE"
-            exit 1
-          fi
-          grep -n "compileSdk" "$GRADLE"
+          GRADLE=android/build.gradle.kts
+          printf '\n%s\n' 'subprojects {' >> "$GRADLE"
+          printf '%s\n' '    afterEvaluate {' >> "$GRADLE"
+          printf '%s\n' '        extensions.findByName("android")?.let { ext ->' >> "$GRADLE"
+          printf '%s\n' '            (ext as com.android.build.gradle.BaseExtension).compileSdkVersion(36)' >> "$GRADLE"
+          printf '%s\n' '        }' >> "$GRADLE"
+          printf '%s\n' '    }' >> "$GRADLE"
+          printf '%s\n' '}' >> "$GRADLE"
+          tail -10 "$GRADLE"
 
       # libtdjson's Android build pulls a prebuilt libtdjson.so from GitHub
       # Packages (https://github.com/up9cloud/android-libtdjson). Reading a
