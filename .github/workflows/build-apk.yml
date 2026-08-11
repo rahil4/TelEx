@@ -82,7 +82,7 @@ jobs:
             fi
             grep -n "compileSdkVersion" "$f"
             FOUND=1
-          done < <(find "$PUB_CACHE_DIR" -path "*/file_picker-*/android/build.gradle*" -print0)
+          done < <(find "$PUB_CACHE_DIR" -path "*/file_picker-*/android/build.gradle*" -not -path "*/example/*" -print0)
           if [ "$FOUND" -eq 0 ]; then
             echo "::error::No file_picker_android build.gradle found under $PUB_CACHE_DIR — plugin layout may have changed."
             find "$PUB_CACHE_DIR" -iname "*file_picker*" -maxdepth 4
