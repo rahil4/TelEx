@@ -383,7 +383,7 @@ class ManifestService {
 
     final fileId = await _uploadAndAwaitReady(
       file.path,
-      fileType: const {'@type': 'fileTypeDocument'},
+      fileType: {'@type': 'fileTypeDocument'},
     );
     final content = <String, dynamic>{
       '@type': 'inputMessageDocument',
@@ -426,12 +426,13 @@ class ManifestService {
   /// directly inside sendMessage (never fully root-caused; this two-step
   /// path is the more robust, standard one either way).
   Future<int> _uploadAndAwaitReady(String localPath, {required Map<String, dynamic> fileType}) async {
-    final uploaded = await TdService.instance.send({
+    final Map<String, dynamic> request = <String, dynamic>{
       '@type': 'uploadFile',
-      'file': {'@type': 'inputFileLocal', 'path': localPath},
-      'file_type': fileType,
+      'file': <String, dynamic>{'@type': 'inputFileLocal', 'path': localPath},
+      'file_type': <String, dynamic>{...fileType},
       'priority': 1,
-    });
+    };
+    final uploaded = await TdService.instance.send(request);
     final fileId = (uploaded['id'] as num).toInt();
     final remote = uploaded['remote'] as Map<String, dynamic>?;
     if (remote?['is_uploading_completed'] == true) return fileId;
@@ -720,7 +721,7 @@ class ManifestService {
   /// دسته‌بندی‌نشده like a freshly-discovered message would.
   Future<void> importLocalFile(String localPath, String fileName, {String? intoFolderId}) async {
     final chatId = await _resolveSavedMessagesChatId();
-    final fileId = await _uploadAndAwaitReady(localPath, fileType: const {'@type': 'fileTypeDocument'});
+    final fileId = await _uploadAndAwaitReady(localPath, fileType: {'@type': 'fileTypeDocument'});
 
     final sent = await TdService.instance.send({
       '@type': 'sendMessage',

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:libtdjson/client.dart';
 
 /// TDLib's own error shape, surfaced as a proper Dart exception instead of
@@ -104,9 +105,16 @@ class TdService {
       },
     ).then((result) {
       if (result['@type'] == 'error') {
+        String payload;
+        try {
+          payload = jsonEncode(request);
+        } catch (_) {
+          payload = '(قابل نمایش نیست)';
+        }
+        if (payload.length > 300) payload = '${payload.substring(0, 300)}…';
         throw TdError(
           code: (result['code'] as num?)?.toInt() ?? 0,
-          message: result['message'] as String? ?? 'خطای نامشخص از تلگرام',
+          message: '${result['message'] as String? ?? 'خطای نامشخص از تلگرام'} | درخواست: $payload',
           requestType: request['@type'] as String?,
         );
       }
