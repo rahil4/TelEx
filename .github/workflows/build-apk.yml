@@ -62,29 +62,32 @@ jobs:
         run: flutter pub get
 
       # file_picker's transitive dependency (flutter_plugin_android_lifecycle)
-      # requires compiling against Android API 36+. Patching only the app
-      # module's compileSdk (tried previously) isn't enough — each Flutter
-      # plugin (file_picker included) is its own Gradle subproject with its
-      # own compileSdk, inherited from the Flutter SDK's shared default
-      # (currently lower than 36) rather than from the app module. Forcing
-      # it on every subproject via the root build.gradle.kts covers all of
-      # them at once, including plugins we don't control directly.
-      - name: Force compileSdk 36 on every Android module
+      # requires compiling against Android API 36+. Two earlier attempts to
+      # fix this globally (app-level compileSdk, then a root-level
+      # subprojects{} override) both failed to actually reach file_picker's
+      # own Gradle config, so this patches file_picker's build.gradle
+      # directly inside the pub cache after `flutter pub get` has fetched it.
+      - name: Patch file_picker's compileSdkVersion directly
         run: |
-          GRADLE=android/build.gradle.kts
-          printf '\n%s\n' 'subprojects {' >> "$GRADLE"
-          printf '%s\n' '    pluginManager.withPlugin("com.android.application") {' >> "$GRADLE"
-          printf '%s\n' '        extensions.configure(com.android.build.gradle.BaseExtension::class.java) {' >> "$GRADLE"
-          printf '%s\n' '            compileSdkVersion(36)' >> "$GRADLE"
-          printf '%s\n' '        }' >> "$GRADLE"
-          printf '%s\n' '    }' >> "$GRADLE"
-          printf '%s\n' '    pluginManager.withPlugin("com.android.library") {' >> "$GRADLE"
-          printf '%s\n' '        extensions.configure(com.android.build.gradle.BaseExtension::class.java) {' >> "$GRADLE"
-          printf '%s\n' '            compileSdkVersion(36)' >> "$GRADLE"
-          printf '%s\n' '        }' >> "$GRADLE"
-          printf '%s\n' '    }' >> "$GRADLE"
-          printf '%s\n' '}' >> "$GRADLE"
-          tail -14 "$GRADLE"
+          PUB_CACHE_DIR="${PUB_CACHE:-$HOME/.pub-cache}"
+          echo "Looking under $PUB_CACHE_DIR"
+          FOUND=0
+          while IFS= read -r -d '' f; do
+            echo "Patching: $f"
+            sed -i -E 's/compileSdkVersion[[:space:]]+([0-9]+|flutter\.compileSdkVersion)/compileSdkVersion 36/' "$f"
+            if ! grep -q "compileSdkVersion 36" "$f"; then
+              echo "::error::sed did not produce 'compileSdkVersion 36' in $f — inspect its actual contents:"
+              cat "$f"
+              exit 1
+            fi
+            grep -n "compileSdkVersion" "$f"
+            FOUND=1
+          done < <(find "$PUB_CACHE_DIR" -path "*/file_picker-*/android/build.gradle*" -print0)
+          if [ "$FOUND" -eq 0 ]; then
+            echo "::error::No file_picker_android build.gradle found under $PUB_CACHE_DIR — plugin layout may have changed."
+            find "$PUB_CACHE_DIR" -iname "*file_picker*" -maxdepth 4
+            exit 1
+          fi
 
       # libtdjson's Android build pulls a prebuilt libtdjson.so from GitHub
       # Packages (https://github.com/up9cloud/android-libtdjson). Reading a
