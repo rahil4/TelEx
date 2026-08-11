@@ -75,12 +75,13 @@ jobs:
           while IFS= read -r -d '' f; do
             echo "Patching: $f"
             sed -i -E 's/compileSdkVersion[[:space:]]+([0-9]+|flutter\.compileSdkVersion)/compileSdkVersion 36/' "$f"
-            if ! grep -q "compileSdkVersion 36" "$f"; then
-              echo "::error::sed did not produce 'compileSdkVersion 36' in $f — inspect its actual contents:"
+            sed -i -E 's/compileSdk[[:space:]]+([0-9]+|flutter\.compileSdkVersion)/compileSdk 36/' "$f"
+            if ! grep -Eq "compileSdk(Version)? 36" "$f"; then
+              echo "::error::sed did not produce a compileSdk(Version) 36 line in $f — inspect its actual contents:"
               cat "$f"
               exit 1
             fi
-            grep -n "compileSdkVersion" "$f"
+            grep -n "compileSdk" "$f"
             FOUND=1
           done < <(find "$PUB_CACHE_DIR" -path "*/file_picker-*/android/build.gradle*" -not -path "*/example/*" -print0)
           if [ "$FOUND" -eq 0 ]; then
