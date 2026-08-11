@@ -73,13 +73,18 @@ jobs:
         run: |
           GRADLE=android/build.gradle.kts
           printf '\n%s\n' 'subprojects {' >> "$GRADLE"
-          printf '%s\n' '    afterEvaluate {' >> "$GRADLE"
-          printf '%s\n' '        extensions.findByName("android")?.let { ext ->' >> "$GRADLE"
-          printf '%s\n' '            (ext as com.android.build.gradle.BaseExtension).compileSdkVersion(36)' >> "$GRADLE"
+          printf '%s\n' '    pluginManager.withPlugin("com.android.application") {' >> "$GRADLE"
+          printf '%s\n' '        extensions.configure(com.android.build.gradle.BaseExtension::class.java) {' >> "$GRADLE"
+          printf '%s\n' '            compileSdkVersion(36)' >> "$GRADLE"
+          printf '%s\n' '        }' >> "$GRADLE"
+          printf '%s\n' '    }' >> "$GRADLE"
+          printf '%s\n' '    pluginManager.withPlugin("com.android.library") {' >> "$GRADLE"
+          printf '%s\n' '        extensions.configure(com.android.build.gradle.BaseExtension::class.java) {' >> "$GRADLE"
+          printf '%s\n' '            compileSdkVersion(36)' >> "$GRADLE"
           printf '%s\n' '        }' >> "$GRADLE"
           printf '%s\n' '    }' >> "$GRADLE"
           printf '%s\n' '}' >> "$GRADLE"
-          tail -10 "$GRADLE"
+          tail -14 "$GRADLE"
 
       # libtdjson's Android build pulls a prebuilt libtdjson.so from GitHub
       # Packages (https://github.com/up9cloud/android-libtdjson). Reading a
