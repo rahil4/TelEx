@@ -3,6 +3,7 @@ import 'package:open_file/open_file.dart';
 import '../../models/manifest.dart';
 import '../../services/manifest_service.dart';
 import '../widgets/file_icons.dart';
+import '../widgets/ltr_text.dart';
 import 'mobile_folder_page.dart';
 
 /// entry is a ManifestItem (already filed) or a CachedMessage (uncategorized).
@@ -86,7 +87,7 @@ class _MobileFilePageState extends State<MobileFilePage> {
                     const SizedBox(height: 14),
                     InfoBar(
                       title: const Text('باز کردن فایل ناموفق بود'),
-                      content: Text(_openError!),
+                      content: TechnicalText(_openError!),
                       severity: InfoBarSeverity.error,
                       onClose: () => setState(() => _openError = null),
                     ),

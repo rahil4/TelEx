@@ -5,6 +5,7 @@ import '../models/manifest.dart';
 import '../services/manifest_service.dart';
 import '../services/auth_service.dart';
 import 'widgets/file_icons.dart';
+import 'widgets/ltr_text.dart';
 
 enum ViewMode { icons, list }
 
@@ -118,7 +119,7 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               child: InfoBar(
                 title: const Text('همگام‌سازی با تلگرام ناموفق بود'),
-                content: Text(_syncError!),
+                content: TechnicalText(_syncError!),
                 severity: InfoBarSeverity.warning,
                 onClose: () => setState(() => _syncError = null),
               ),

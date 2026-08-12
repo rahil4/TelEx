@@ -1,5 +1,6 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import '../services/auth_service.dart';
+import 'widgets/ltr_text.dart';
 
 class LoginScreen extends StatefulWidget {
   final AuthStatus status;
@@ -80,7 +81,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   const SizedBox(height: 20),
                   if (widget.status == AuthStatus.error) ...[
                     InfoBar(
-                      title: Text(AuthService.instance.lastError ?? 'خطایی رخ داد'),
+                      title: TechnicalText(AuthService.instance.lastError ?? 'خطایی رخ داد'),
                       severity: InfoBarSeverity.error,
                     ),
                     const SizedBox(height: 16),

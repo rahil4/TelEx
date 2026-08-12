@@ -6,6 +6,7 @@ import '../../services/manifest_service.dart';
 import '../../services/auth_service.dart';
 import '../widgets/file_icons.dart';
 import 'mobile_file_page.dart';
+import '../widgets/ltr_text.dart';
 
 enum _ViewMode { icons, list }
 
@@ -224,7 +225,7 @@ class _MobileFolderPageState extends State<MobileFolderPage> {
                     padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
                     child: InfoBar(
                       title: const Text('همگام‌سازی ناموفق بود'),
-                      content: Text(_syncError!),
+                      content: TechnicalText(_syncError!),
                       severity: InfoBarSeverity.warning,
                       onClose: () => setState(() => _syncError = null),
                     ),

@@ -1,6 +1,7 @@
 import 'package:fluent_ui/fluent_ui.dart';
 import '../services/settings_service.dart';
 import '../services/auth_service.dart';
+import 'widgets/ltr_text.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -113,7 +114,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 ),
                 const SizedBox(height: 16),
                 if (_error != null) ...[
-                  InfoBar(title: Text(_error!), severity: InfoBarSeverity.error),
+                  InfoBar(title: TechnicalText(_error!), severity: InfoBarSeverity.error),
                   const SizedBox(height: 12),
                 ],
                 SizedBox(
