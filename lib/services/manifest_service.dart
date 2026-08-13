@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -554,12 +555,88 @@ class ManifestService {
   /// rejected by TDLib as "Unknown class" even though the JSON is valid).
   /// The implementation was removed rather than left as unreachable dead
   /// code; see git history if revisiting this once the package is fixed.
+  /// Uploads a file picked from the device's own storage into Saved
+  /// Messages as a new document message. If [intoFolderId] is given, the
+  /// new item is filed straight into that folder instead of landing in
+  /// دسته‌بندی‌نشده like a freshly-discovered message would.
+  ///
+  /// Sends the local file directly via `inputFileLocal` inside
+  /// `inputMessageDocument`, deliberately WITHOUT a caption. Two earlier
+  /// approaches (uploadFile as a separate step; inputMessageDocument with
+  /// both `document` and `caption`) both hit an unresolved libtdjson bug
+  /// where any request containing two or more sibling nested objects gets
+  /// rejected, even when the JSON is valid. This request has exactly one
+  /// nested object (`document`) at every level — the same shape that has
+  /// reliably worked elsewhere (e.g. inputMessageText's single `text`
+  /// field) — so it should sidestep that bug.
   Future<void> importLocalFile(String localPath, String fileName, {String? intoFolderId}) async {
-    throw StateError(
-      'افزودن فایل از حافظهٔ گوشی فعلاً به‌خاطر یک محدودیت شناخته‌شده در '
-      'کتابخانهٔ زیرین TDLib (نه کد این برنامه) کار نمی‌کند. فایل‌های داخل '
-      'Saved Messages هم‌چنان به‌درستی نمایش و مدیریت می‌شوند.',
-    );
+    final chatId = await _resolveSavedMessagesChatId();
+
+    final sent = await TdService.instance.send({
+      '@type': 'sendMessage',
+      'chat_id': chatId,
+      'input_message_content': <String, dynamic>{
+        '@type': 'inputMessageDocument',
+        'document': <String, dynamic>{'@type': 'inputFileLocal', 'path': localPath},
+      },
+    });
+    final tempId = (sent['id'] as num).toInt();
+    final messageId = await _awaitMessageConfirmed(tempId);
+
+    // Record it locally right away so it shows up immediately without
+    // waiting for the next full sync.
+    final fileSize = await File(localPath).length();
+    final db = await _openDb();
+    await db.insert('cached_messages', {
+      'message_id': messageId,
+      'file_name': fileName,
+      'mime_type': null,
+      'size_bytes': fileSize,
+      'date': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+
+    if (intoFolderId != null) {
+      manifest.items.add(ManifestItem(
+        telegramMessageId: messageId,
+        folderId: intoFolderId,
+        displayName: fileName,
+        sizeBytes: fileSize,
+        originalFileName: fileName,
+      ));
+    }
+
+    await loadFromLocalCache();
+    _changesController.add(null);
+  }
+
+  /// sendMessage() returns immediately with a message carrying a temporary,
+  /// client-local id — the server hasn't confirmed it yet. This waits for
+  /// the matching updateMessageSendSucceeded (or _Failed) event and
+  /// resolves with the real, server-confirmed message id.
+  Future<int> _awaitMessageConfirmed(int tempId) async {
+    final completer = Completer<int>();
+    late final StreamSubscription sub;
+    sub = TdService.instance.updates.listen((u) {
+      final type = u['@type'];
+      if (type == 'updateMessageSendSucceeded') {
+        final oldId = (u['old_message_id'] as num?)?.toInt();
+        if (oldId == tempId) {
+          final newMsg = u['message'] as Map<String, dynamic>;
+          completer.complete((newMsg['id'] as num).toInt());
+          sub.cancel();
+        }
+      } else if (type == 'updateMessageSendFailed') {
+        final oldId = (u['old_message_id'] as num?)?.toInt();
+        if (oldId == tempId) {
+          completer.completeError(StateError('ارسال فایل به تلگرام ناموفق بود'));
+          sub.cancel();
+        }
+      }
+    });
+    return completer.future.timeout(const Duration(seconds: 30), onTimeout: () {
+      sub.cancel();
+      return tempId; // fall back rather than hanging forever
+    });
   }
 
   /// Deletes a message from Saved Messages entirely (not just from this

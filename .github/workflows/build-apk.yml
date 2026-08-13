@@ -61,6 +61,34 @@ jobs:
       - name: Get dependencies
         run: flutter pub get
 
+      # file_picker's transitive dependency (flutter_plugin_android_lifecycle)
+      # requires compiling against Android API 36+, but file_picker's own
+      # bundled build.gradle still declares compileSdk 34. Patching this
+      # directly in the pub cache (confirmed working previously, after two
+      # earlier attempts at a more "global" fix both failed silently).
+      - name: Patch file_picker's compileSdkVersion directly
+        run: |
+          PUB_CACHE_DIR="${PUB_CACHE:-$HOME/.pub-cache}"
+          echo "Looking under $PUB_CACHE_DIR"
+          FOUND=0
+          while IFS= read -r -d '' f; do
+            echo "Patching: $f"
+            sed -i -E 's/compileSdkVersion[[:space:]]+([0-9]+|flutter\.compileSdkVersion)/compileSdkVersion 36/' "$f"
+            sed -i -E 's/compileSdk[[:space:]]+([0-9]+|flutter\.compileSdkVersion)/compileSdk 36/' "$f"
+            if ! grep -Eq "compileSdk(Version)? 36" "$f"; then
+              echo "::error::sed did not produce a compileSdk(Version) 36 line in $f — inspect its actual contents:"
+              cat "$f"
+              exit 1
+            fi
+            grep -n "compileSdk" "$f"
+            FOUND=1
+          done < <(find "$PUB_CACHE_DIR" -path "*/file_picker-*/android/build.gradle*" -not -path "*/example/*" -print0)
+          if [ "$FOUND" -eq 0 ]; then
+            echo "::error::No file_picker build.gradle found under $PUB_CACHE_DIR — plugin layout may have changed."
+            find "$PUB_CACHE_DIR" -iname "*file_picker*" -maxdepth 4
+            exit 1
+          fi
+
       # libtdjson's Android build pulls a prebuilt libtdjson.so from GitHub
       # Packages (https://github.com/up9cloud/android-libtdjson). Reading a
       # PUBLIC package there works with the default GITHUB_TOKEN; if this
