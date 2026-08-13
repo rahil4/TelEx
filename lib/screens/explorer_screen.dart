@@ -381,7 +381,7 @@ class _ExplorerScreenState extends State<ExplorerScreen> {
       ManifestService.instance.fileMessageIntoFolder(data, targetFolderId);
     } else if (data is ManifestItem) {
       data.folderId = targetFolderId;
-      ManifestService.instance.pushManifest();
+      ManifestService.instance.saveChanges();
     }
   }
 

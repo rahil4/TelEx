@@ -237,7 +237,7 @@ class _MobileFilePageState extends State<MobileFilePage> {
     final entry = widget.entry;
     if (entry is ManifestItem) {
       entry.folderId = folderId;
-      await ManifestService.instance.pushManifest();
+      await ManifestService.instance.saveChanges();
     } else if (entry is CachedMessage) {
       await ManifestService.instance.fileMessageIntoFolder(entry, folderId);
     }

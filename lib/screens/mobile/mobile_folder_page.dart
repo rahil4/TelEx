@@ -1,5 +1,4 @@
 import 'package:fluent_ui/fluent_ui.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:shamsi_date/shamsi_date.dart';
 import '../../models/manifest.dart';
 import '../../services/manifest_service.dart';
@@ -37,7 +36,6 @@ class _MobileFolderPageState extends State<MobileFolderPage> {
 
   bool _selectionMode = false;
   final Set<Object> _selected = {};
-  bool _importing = false;
 
   @override
   void initState() {
@@ -105,7 +103,7 @@ class _MobileFolderPageState extends State<MobileFolderPage> {
     for (final entry in _selected.toList()) {
       if (entry is ManifestItem) {
         entry.folderId = folderId as String?;
-        await ManifestService.instance.pushManifest();
+        await ManifestService.instance.saveChanges();
       } else if (entry is CachedMessage) {
         await ManifestService.instance.fileMessageIntoFolder(entry, folderId as String?);
       }
@@ -150,33 +148,6 @@ class _MobileFolderPageState extends State<MobileFolderPage> {
         child: Row(children: [icon, const SizedBox(width: 10), Expanded(child: Text(label))]),
       ),
     );
-  }
-
-  Future<void> _importFile() async {
-    final result = await FilePicker.platform.pickFiles();
-    if (result == null || result.files.isEmpty) return;
-    final picked = result.files.single;
-    final path = picked.path;
-    if (path == null) {
-      _showError('مسیر فایل انتخاب‌شده در دسترس نیست');
-      return;
-    }
-    setState(() => _importing = true);
-    try {
-      await ManifestService.instance.importLocalFile(
-        path,
-        picked.name,
-        intoFolderId: widget.uncategorized ? null : widget.folderId,
-      );
-    } catch (e) {
-      _showError('آپلود فایل ناموفق بود: $e');
-    } finally {
-      if (mounted) setState(() => _importing = false);
-    }
-  }
-
-  void _showError(String message) {
-    setState(() => _syncError = message);
   }
 
   Future<void> _newFolder() async {
@@ -315,12 +286,6 @@ class _MobileFolderPageState extends State<MobileFolderPage> {
                   ]),
               ],
             ),
-          ),
-          IconButton(
-            icon: _importing
-                ? const SizedBox(width: 14, height: 14, child: ProgressRing(strokeWidth: 2))
-                : const Icon(FluentIcons.upload),
-            onPressed: _importing ? null : _importFile,
           ),
           IconButton(
             icon: Icon(_viewMode == _ViewMode.list ? FluentIcons.grid_view_medium : FluentIcons.list),

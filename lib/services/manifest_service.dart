@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart';
@@ -36,14 +35,15 @@ class CachedMessage {
   int get hashCode => messageId.hashCode;
 }
 
-const _manifestMarker = '#kavoshgar_manifest';
-
 class ManifestService {
   ManifestService._();
   static final ManifestService instance = ManifestService._();
 
   Database? _db;
   int? _savedMessagesChatId;
+  // Kept only so accounts that tested the earlier Telegram-synced manifest
+  // (before this went local-only) don't see that leftover message show up
+  // as a stray file in this device's uncategorized list.
   int? _manifestMessageId;
 
   Manifest manifest = Manifest.empty();
@@ -212,6 +212,15 @@ class ManifestService {
     });
   }
 
+  /// Persists the current in-memory [manifest] state (folders/tags/items)
+  /// and notifies listeners. Use after directly mutating a model object
+  /// (e.g. `item.folderId = x`) at a call site that doesn't have a more
+  /// specific ManifestService method for the change being made.
+  Future<void> saveChanges() async {
+    await _persistLocalCache();
+    _changesController.add(null);
+  }
+
   /// Items not yet filed into any folder, derived by diffing every media
   /// message we've seen in Saved Messages against the manifest.
   List<CachedMessage> get uncategorizedMessages {
@@ -220,8 +229,8 @@ class ManifestService {
   }
 
   // ---------------------------------------------------------------------
-  // mutations used by the explorer UI — each persists locally immediately
-  // and pushes the updated manifest to Telegram in the background.
+  // mutations used by the explorer UI — local-only for now (see note on
+  // sync() below for why multi-device sync via Saved Messages is paused).
   // ---------------------------------------------------------------------
 
   Future<ManifestFolder> createFolder({required String name, String? parentId}) async {
@@ -230,7 +239,6 @@ class ManifestService {
     manifest.folders.add(folder);
     await _persistLocalCache();
     _changesController.add(null);
-    unawaited(pushManifest());
     return folder;
   }
 
@@ -252,7 +260,6 @@ class ManifestService {
     }
     await _persistLocalCache();
     _changesController.add(null);
-    unawaited(pushManifest());
   }
 
   Future<void> renameFolder(String folderId, String newName) async {
@@ -260,7 +267,6 @@ class ManifestService {
     f.name = newName;
     await _persistLocalCache();
     _changesController.add(null);
-    unawaited(pushManifest());
   }
 
   Future<void> deleteFolder(String folderId) async {
@@ -274,7 +280,6 @@ class ManifestService {
     }
     await _persistLocalCache();
     _changesController.add(null);
-    unawaited(pushManifest());
   }
 
   // ---------------------------------------------------------------------
@@ -299,193 +304,18 @@ class ManifestService {
     return chatId;
   }
 
-  /// Full sync: discovers (or creates) the pinned manifest document, then
-  /// walks Saved Messages history to refresh the "uncategorized" set.
+  /// Refreshes the "دسته‌بندی‌نشده" set by walking Saved Messages history.
+  ///
+  /// NOTE: multi-device sync of the folder structure itself (via a manifest
+  /// message in Saved Messages) is paused for now — folders/tags/items live
+  /// only in this device's local SQLite cache. Files themselves are always
+  /// safe in Telegram regardless; only the *organization* (which folder
+  /// something is filed into) is local-only until this is revisited.
   Future<void> sync() async {
     final chatId = await _resolveSavedMessagesChatId();
-    await _discoverOrCreateManifest(chatId);
     await _scanMedia(chatId);
     await _persistLocalCache();
     _changesController.add(null);
-  }
-
-  Future<void> _discoverOrCreateManifest(int chatId) async {
-    if (_manifestMessageId != null) {
-      await _downloadAndApplyManifest(_manifestMessageId!);
-      return;
-    }
-
-    final found = await TdService.instance.send({
-      '@type': 'searchChatMessages',
-      'chat_id': chatId,
-      'query': _manifestMarker,
-      'from_message_id': 0,
-      'offset': 0,
-      'limit': 5,
-    });
-    final messages = (found['messages'] as List?) ?? [];
-    if (messages.isNotEmpty) {
-      final id = (messages.first['id'] as num).toInt();
-      _manifestMessageId = id;
-      await _kvSet('manifest_message_id', id.toString());
-      await _downloadAndApplyManifest(id);
-      return;
-    }
-
-    // nothing found — this account has no manifest yet, create an empty one
-    manifest = Manifest.empty();
-    await _pushManifest(chatId, create: true);
-  }
-
-  Future<void> _downloadAndApplyManifest(int messageId) async {
-    final msg = await TdService.instance.send({
-      '@type': 'getMessage',
-      'chat_id': _savedMessagesChatId!,
-      'message_id': messageId,
-    });
-    final content = msg['content'] as Map<String, dynamic>?;
-    final doc = content?['document'] as Map<String, dynamic>?;
-    final file = doc?['document'] as Map<String, dynamic>?;
-    final fileId = (file?['id'] as num?)?.toInt();
-    if (fileId == null) return;
-
-    final downloaded = await TdService.instance.send({
-      '@type': 'downloadFile',
-      'file_id': fileId,
-      'priority': 32,
-      'synchronous': true,
-    });
-    final localPath = (downloaded['local'] as Map<String, dynamic>?)?['path'] as String?;
-    if (localPath == null) return;
-
-    final text = await File(localPath).readAsString();
-    manifest = Manifest.fromJson(jsonDecode(text) as Map<String, dynamic>);
-  }
-
-  /// Serializes [manifest] to a small JSON file and uploads/pins/edits it in
-  /// Saved Messages as a document (not a plain-text message — keeps
-  /// Saved Messages tidy when browsed normally, and has no size limit tied
-  /// to Telegram's ~4096-character text cap). Call after any local edit
-  /// (new folder, move file, ...).
-  Future<void> pushManifest() async {
-    final chatId = await _resolveSavedMessagesChatId();
-    await _pushManifest(chatId, create: _manifestMessageId == null);
-    await _persistLocalCache();
-  }
-
-  Future<void> _pushManifest(int chatId, {required bool create}) async {
-    manifest.revision += 1;
-    manifest.updatedAt = DateTime.now();
-
-    final dir = await getTemporaryDirectory();
-    final file = File(p.join(dir.path, 'kavoshgar_manifest.json'));
-    await file.writeAsString(jsonEncode(manifest.toJson()), flush: true);
-
-    final fileId = await _uploadAndAwaitReady(
-      file.path,
-      fileType: {'@type': 'fileTypeDocument'},
-    );
-    final content = <String, dynamic>{
-      '@type': 'inputMessageDocument',
-      'document': <String, dynamic>{'@type': 'inputFileId', 'id': fileId},
-      'caption': <String, dynamic>{'@type': 'formattedText', 'text': _manifestMarker},
-    };
-
-    if (create) {
-      final sent = await TdService.instance.send({
-        '@type': 'sendMessage',
-        'chat_id': chatId,
-        'input_message_content': content,
-      });
-      final tempId = (sent['id'] as num).toInt();
-      final id = await _awaitMessageConfirmed(tempId);
-      _manifestMessageId = id;
-      await _kvSet('manifest_message_id', id.toString());
-      await TdService.instance.send({
-        '@type': 'pinChatMessage',
-        'chat_id': chatId,
-        'message_id': id,
-        'disable_notification': true,
-      });
-    } else {
-      await TdService.instance.send({
-        '@type': 'editMessageMedia',
-        'chat_id': chatId,
-        'message_id': _manifestMessageId,
-        'input_message_content': content,
-      });
-    }
-  }
-
-  /// Uploads a local file to Telegram's servers and waits until the upload
-  /// is actually done, returning the resulting file id (usable anywhere an
-  /// InputFile is needed, e.g. as `inputFileId` in a message). Splitting
-  /// upload from message composition like this — TDLib's documented,
-  /// recommended pattern — is also what lets us report/await progress, and
-  /// sidesteps whatever previously went wrong inlining inputFileLocal
-  /// directly inside sendMessage (never fully root-caused; this two-step
-  /// path is the more robust, standard one either way).
-  Future<int> _uploadAndAwaitReady(String localPath, {required Map<String, dynamic> fileType}) async {
-    final Map<String, dynamic> request = <String, dynamic>{
-      '@type': 'uploadFile',
-      'file': <String, dynamic>{'@type': 'inputFileLocal', 'path': localPath},
-      'file_type': <String, dynamic>{...fileType},
-      'priority': 1,
-    };
-    final uploaded = await TdService.instance.send(request);
-    final fileId = (uploaded['id'] as num).toInt();
-    final remote = uploaded['remote'] as Map<String, dynamic>?;
-    if (remote?['is_uploading_completed'] == true) return fileId;
-
-    final completer = Completer<int>();
-    late final StreamSubscription sub;
-    sub = TdService.instance.updates.listen((u) {
-      if (u['@type'] != 'updateFile') return;
-      final f = u['file'] as Map<String, dynamic>?;
-      if (f == null || (f['id'] as num).toInt() != fileId) return;
-      final rem = f['remote'] as Map<String, dynamic>?;
-      if (rem?['is_uploading_completed'] == true) {
-        completer.complete(fileId);
-        sub.cancel();
-      }
-    });
-    return completer.future.timeout(const Duration(seconds: 90), onTimeout: () {
-      sub.cancel();
-      throw TimeoutException('آپلود فایل بیش از حد طول کشید');
-    });
-  }
-
-  /// sendMessage() returns immediately with a message carrying a temporary,
-  /// client-local id — the server hasn't confirmed it yet, so operations
-  /// like pinChatMessage will reject that id ("Message can't be pinned").
-  /// This waits for the matching updateMessageSendSucceeded (or _Failed)
-  /// event and resolves with the real, server-confirmed message id.
-  Future<int> _awaitMessageConfirmed(int tempId) async {
-    final completer = Completer<int>();
-    late final StreamSubscription sub;
-    sub = TdService.instance.updates.listen((u) {
-      final type = u['@type'];
-      if (type == 'updateMessageSendSucceeded') {
-        final oldId = (u['old_message_id'] as num?)?.toInt();
-        if (oldId == tempId) {
-          final newMsg = u['message'] as Map<String, dynamic>;
-          completer.complete((newMsg['id'] as num).toInt());
-          sub.cancel();
-        }
-      } else if (type == 'updateMessageSendFailed') {
-        final oldId = (u['old_message_id'] as num?)?.toInt();
-        if (oldId == tempId) {
-          completer.completeError(StateError('ارسال پیام منیفست به تلگرام ناموفق بود'));
-          sub.cancel();
-        }
-      }
-    });
-    return completer.future.timeout(const Duration(seconds: 20), onTimeout: () {
-      sub.cancel();
-      // fall back to the temporary id rather than hanging forever — pin
-      // may still fail, but sync as a whole can continue.
-      return tempId;
-    });
   }
 
   /// Walks Saved Messages backwards from the newest message, stopping once
@@ -716,48 +546,20 @@ class ManifestService {
   // ---------------------------------------------------------------------
 
   /// Uploads a file picked from the device's own storage into Saved
-  /// Messages as a new document message. If [intoFolderId] is given, the
-  /// new item is filed straight into that folder instead of landing in
-  /// دسته‌بندی‌نشده like a freshly-discovered message would.
+  /// Messages as a new document message.
+  ///
+  /// Currently always fails fast with a clear message: this depends on
+  /// uploadFile, which hit an unresolved libtdjson limitation (any request
+  /// with 2+ sibling nested objects — file + file_type here — gets
+  /// rejected by TDLib as "Unknown class" even though the JSON is valid).
+  /// The implementation was removed rather than left as unreachable dead
+  /// code; see git history if revisiting this once the package is fixed.
   Future<void> importLocalFile(String localPath, String fileName, {String? intoFolderId}) async {
-    final chatId = await _resolveSavedMessagesChatId();
-    final fileId = await _uploadAndAwaitReady(localPath, fileType: {'@type': 'fileTypeDocument'});
-
-    final sent = await TdService.instance.send({
-      '@type': 'sendMessage',
-      'chat_id': chatId,
-      'input_message_content': {
-        '@type': 'inputMessageDocument',
-        'document': {'@type': 'inputFileId', 'id': fileId},
-      },
-    });
-    final tempId = (sent['id'] as num).toInt();
-    final messageId = await _awaitMessageConfirmed(tempId);
-
-    // Record it locally right away so it shows up immediately without
-    // waiting for the next full sync.
-    final db = await _openDb();
-    await db.insert('cached_messages', {
-      'message_id': messageId,
-      'file_name': fileName,
-      'mime_type': null,
-      'size_bytes': await File(localPath).length(),
-      'date': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-    }, conflictAlgorithm: ConflictAlgorithm.replace);
-
-    if (intoFolderId != null) {
-      manifest.items.add(ManifestItem(
-        telegramMessageId: messageId,
-        folderId: intoFolderId,
-        displayName: fileName,
-        sizeBytes: await File(localPath).length(),
-        originalFileName: fileName,
-      ));
-      await pushManifest();
-    }
-
-    await loadFromLocalCache();
-    _changesController.add(null);
+    throw StateError(
+      'افزودن فایل از حافظهٔ گوشی فعلاً به‌خاطر یک محدودیت شناخته‌شده در '
+      'کتابخانهٔ زیرین TDLib (نه کد این برنامه) کار نمی‌کند. فایل‌های داخل '
+      'Saved Messages هم‌چنان به‌درستی نمایش و مدیریت می‌شوند.',
+    );
   }
 
   /// Deletes a message from Saved Messages entirely (not just from this
@@ -771,7 +573,6 @@ class ManifestService {
       'revoke': true,
     });
 
-    final hadFolderEntry = manifest.items.any((i) => i.telegramMessageId == messageId);
     manifest.items.removeWhere((i) => i.telegramMessageId == messageId);
 
     final db = await _openDb();
@@ -782,8 +583,5 @@ class ManifestService {
 
     await _persistLocalCache();
     _changesController.add(null);
-    if (hadFolderEntry) {
-      unawaited(pushManifest());
-    }
   }
 }
