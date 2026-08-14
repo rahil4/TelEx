@@ -543,32 +543,21 @@ class ManifestService {
   }
 
   // ---------------------------------------------------------------------
-  // import from device / delete
+  // import from device
   // ---------------------------------------------------------------------
 
-  /// Uploads a file picked from the device's own storage into Saved
-  /// Messages as a new document message.
-  ///
-  /// Currently always fails fast with a clear message: this depends on
-  /// uploadFile, which hit an unresolved libtdjson limitation (any request
-  /// with 2+ sibling nested objects — file + file_type here — gets
-  /// rejected by TDLib as "Unknown class" even though the JSON is valid).
-  /// The implementation was removed rather than left as unreachable dead
-  /// code; see git history if revisiting this once the package is fixed.
   /// Uploads a file picked from the device's own storage into Saved
   /// Messages as a new document message. If [intoFolderId] is given, the
   /// new item is filed straight into that folder instead of landing in
   /// دسته‌بندی‌نشده like a freshly-discovered message would.
   ///
-  /// Sends the local file directly via `inputFileLocal` inside
-  /// `inputMessageDocument`, deliberately WITHOUT a caption. Two earlier
-  /// approaches (uploadFile as a separate step; inputMessageDocument with
-  /// both `document` and `caption`) both hit an unresolved libtdjson bug
-  /// where any request containing two or more sibling nested objects gets
-  /// rejected, even when the JSON is valid. This request has exactly one
-  /// nested object (`document`) at every level — the same shape that has
-  /// reliably worked elsewhere (e.g. inputMessageText's single `text`
-  /// field) — so it should sidestep that bug.
+  /// Re-enabled after adding READ/WRITE_EXTERNAL_STORAGE permissions to
+  /// the Android manifest (see build-apk.yml) — flutter_libtdjson's own
+  /// README notes TDLib file operations need these, which we never had.
+  /// Three earlier attempts using different JSON shapes all failed with
+  /// "InputFile is not specified" regardless of structure, which pointed
+  /// away from a request-shape problem and toward something environmental
+  /// like this.
   Future<void> importLocalFile(String localPath, String fileName, {String? intoFolderId}) async {
     final chatId = await _resolveSavedMessagesChatId();
 

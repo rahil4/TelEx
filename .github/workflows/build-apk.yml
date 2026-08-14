@@ -50,11 +50,23 @@ jobs:
       # the main manifest used by release builds may not have it, which
       # would silently block all network access (including TDLib's) in
       # the release APK we ship. Make sure it's there explicitly.
-      - name: Ensure INTERNET permission in release manifest
+      #
+      # Also adding READ/WRITE_EXTERNAL_STORAGE: flutter_libtdjson's own
+      # README notes these are needed for TDLib file operations. We never
+      # had them, and every attempt to upload a local file to Telegram
+      # (inputFileLocal) has failed with "InputFile is not specified" —
+      # this is the most concrete lead we have for why.
+      - name: Ensure required permissions in release manifest
         run: |
           MANIFEST=android/app/src/main/AndroidManifest.xml
           if ! grep -q 'android.permission.INTERNET' "$MANIFEST"; then
             sed -i '/<manifest /a\    <uses-permission android:name="android.permission.INTERNET"/>' "$MANIFEST"
+          fi
+          if ! grep -q 'android.permission.READ_EXTERNAL_STORAGE' "$MANIFEST"; then
+            sed -i '/<manifest /a\    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>' "$MANIFEST"
+          fi
+          if ! grep -q 'android.permission.WRITE_EXTERNAL_STORAGE' "$MANIFEST"; then
+            sed -i '/<manifest /a\    <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>' "$MANIFEST"
           fi
           cat "$MANIFEST"
 
